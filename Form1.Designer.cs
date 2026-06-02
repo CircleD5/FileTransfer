@@ -32,7 +32,6 @@
             this.dgvTasks = new System.Windows.Forms.DataGridView();
             this.txtLog = new System.Windows.Forms.TextBox();
             this.btnSave = new System.Windows.Forms.Button();
-            this.btnLoad = new System.Windows.Forms.Button();
             this.chkAutoRun = new System.Windows.Forms.CheckBox();
             this.cmbProfiles = new System.Windows.Forms.ComboBox();
             ((System.ComponentModel.ISupportInitialize)(this.dgvTasks)).BeginInit();
@@ -53,7 +52,7 @@
             this.dgvTasks.Location = new System.Drawing.Point(12, 320);
             this.dgvTasks.Name = "dgvTasks";
             this.dgvTasks.RowTemplate.Height = 21;
-            this.dgvTasks.Size = new System.Drawing.Size(974, 151);
+            this.dgvTasks.Size = new System.Drawing.Size(1244, 151);
             this.dgvTasks.TabIndex = 1;
             // 
             // txtLog
@@ -63,7 +62,7 @@
             this.txtLog.Name = "txtLog";
             this.txtLog.ReadOnly = true;
             this.txtLog.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtLog.Size = new System.Drawing.Size(974, 150);
+            this.txtLog.Size = new System.Drawing.Size(1244, 150);
             this.txtLog.TabIndex = 2;
             // 
             // btnSave
@@ -74,15 +73,6 @@
             this.btnSave.TabIndex = 3;
             this.btnSave.Text = "btnSave";
             this.btnSave.UseVisualStyleBackColor = true;
-            // 
-            // btnLoad
-            // 
-            this.btnLoad.Location = new System.Drawing.Point(342, 20);
-            this.btnLoad.Name = "btnLoad";
-            this.btnLoad.Size = new System.Drawing.Size(75, 23);
-            this.btnLoad.TabIndex = 4;
-            this.btnLoad.Text = "button2";
-            this.btnLoad.UseVisualStyleBackColor = true;
             // 
             // chkAutoRun
             // 
@@ -107,10 +97,9 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1016, 648);
+            this.ClientSize = new System.Drawing.Size(1407, 648);
             this.Controls.Add(this.cmbProfiles);
             this.Controls.Add(this.chkAutoRun);
-            this.Controls.Add(this.btnLoad);
             this.Controls.Add(this.btnSave);
             this.Controls.Add(this.txtLog);
             this.Controls.Add(this.dgvTasks);
@@ -129,7 +118,6 @@
         private System.Windows.Forms.DataGridView dgvTasks;
         private System.Windows.Forms.TextBox txtLog;
         private System.Windows.Forms.Button btnSave;
-        private System.Windows.Forms.Button btnLoad;
         private System.Windows.Forms.CheckBox chkAutoRun;
         private System.Windows.Forms.ComboBox cmbProfiles;
     }
