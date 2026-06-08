@@ -10,12 +10,7 @@ namespace FileTransfer2
 {
     public partial class Form1 : Form
     {
-        #region 0. 定数・フィールド・データバインディング用辞書
-
-        private readonly string AutoRunPlanDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AutoRun", "Plan");
-        private readonly string AutoRunDoneDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AutoRun", "Done");
-        private readonly string ProfilesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Profiles");
-
+        private AppConfig _config;
         private Timer autoRunTimer;
         private FileTransferEngine transferEngine;
 
@@ -24,58 +19,37 @@ namespace FileTransfer2
         private string _currentProfile = "未選択";
 
         private static readonly Dictionary<TransferAction, string> ActionBindSource = new Dictionary<TransferAction, string>
-        {
-            { TransferAction.Copy, "コピー" },
-            { TransferAction.Move, "移動" },
-            { TransferAction.Delete, "削除" }
-        };
+        { { TransferAction.Copy, "コピー" }, { TransferAction.Move, "移動" }, { TransferAction.Delete, "削除" } };
 
         private static readonly Dictionary<TransferMode, string> TransferModeBindSource = new Dictionary<TransferMode, string>
-        {
-            { TransferMode.FolderAsIs, "フォルダごと転送" },
-            { TransferMode.ExtractContents, "親フォルダを含めずに転送" }
-        };
+        { { TransferMode.FolderAsIs, "フォルダごと転送" }, { TransferMode.ExtractContents, "親フォルダを含めずに転送" } };
 
         private static readonly Dictionary<TransferMode, string> DeleteModeBindSource = new Dictionary<TransferMode, string>
-        {
-            { TransferMode.DeleteAll, "丸ごと削除" },
-            { TransferMode.DeleteKeepParent, "親フォルダのみ残す" },
-            { TransferMode.DeleteFilesOnly, "ファイルのみ削除" }
-        };
+        { { TransferMode.DeleteAll, "丸ごと削除" }, { TransferMode.DeleteKeepParent, "親フォルダのみ残す" }, { TransferMode.DeleteFilesOnly, "ファイルのみ削除" } };
 
         private static readonly Dictionary<TransferMode, string> AllModeDisplayDict = new Dictionary<TransferMode, string>
         {
-            { TransferMode.FolderAsIs, "フォルダごと転送" },
-            { TransferMode.ExtractContents, "親フォルダを含めずに転送" },
-            { TransferMode.DeleteAll, "丸ごと削除" },
-            { TransferMode.DeleteKeepParent, "親フォルダのみ残す" },
-            { TransferMode.DeleteFilesOnly, "ファイルのみ削除" }
+            { TransferMode.FolderAsIs, "フォルダごと転送" }, { TransferMode.ExtractContents, "親フォルダを含めずに転送" },
+            { TransferMode.DeleteAll, "丸ごと削除" }, { TransferMode.DeleteKeepParent, "親フォルダのみ残す" }, { TransferMode.DeleteFilesOnly, "ファイルのみ削除" }
         };
 
         private static readonly Dictionary<string, TransferMode> ModeParseDict = new Dictionary<string, TransferMode>
         {
-            { "フォルダごと転送", TransferMode.FolderAsIs },
-            { "親フォルダを含めずに転送", TransferMode.ExtractContents },
-            { "丸ごと削除", TransferMode.DeleteAll },
-            { "親フォルダのみ残す", TransferMode.DeleteKeepParent },
-            { "ファイルのみ削除", TransferMode.DeleteFilesOnly },
-            { "中身を展開して転送", TransferMode.ExtractContents }, // 後方互換
-            { "---", TransferMode.FolderAsIs },
-            { "階層維持", TransferMode.FolderAsIs },
-            { "階層無視", TransferMode.ExtractContents },
-            { "中身のみ削除", TransferMode.DeleteKeepParent }
+            { "フォルダごと転送", TransferMode.FolderAsIs }, { "親フォルダを含めずに転送", TransferMode.ExtractContents },
+            { "丸ごと削除", TransferMode.DeleteAll }, { "親フォルダのみ残す", TransferMode.DeleteKeepParent }, { "ファイルのみ削除", TransferMode.DeleteFilesOnly },
+            { "中身を展開して転送", TransferMode.ExtractContents }, { "---", TransferMode.FolderAsIs }, { "階層維持", TransferMode.FolderAsIs },
+            { "階層無視", TransferMode.ExtractContents }, { "中身のみ削除", TransferMode.DeleteKeepParent }
         };
-
-        #endregion
-
-        #region 1. 初期化処理
 
         public Form1()
         {
             InitializeComponent();
-            SetupDataGridView();
 
-            transferEngine = new FileTransferEngine(WriteLog);
+            _config = new AppConfig();
+            _config.Load(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.ini"));
+
+            SetupDataGridView();
+            transferEngine = new FileTransferEngine(WriteLog, _config);
 
             btnExecuteAll.Click += btnExecuteAll_Click;
             btnSave.Click += btnSave_Click;
@@ -95,12 +69,6 @@ namespace FileTransfer2
             SetDirty(false);
         }
 
-        public void LogGlobalError(Exception ex)
-        {
-            WriteLog($"[システムエラー] 予期せぬ例外を捕捉し、強制終了を防止しました。");
-            WriteLog($"詳細: {ex.Message}");
-        }
-
         private void WriteLog(string message)
         {
             if (txtLog.InvokeRequired)
@@ -118,10 +86,6 @@ namespace FileTransfer2
             this.Text = $"ファイル転送ツール - [{_currentProfile}]{dirtyMark}";
         }
 
-        #endregion
-
-        #region 2. UI連動 (DataGridView制御)
-
         private void SetupDataGridView()
         {
             dgvTasks.AutoGenerateColumns = false;
@@ -129,22 +93,19 @@ namespace FileTransfer2
 
             var colAction = new DataGridViewComboBoxColumn { Name = "ActionColumn", HeaderText = "処理種別", Width = 80 };
             colAction.DataSource = new BindingSource(ActionBindSource, null);
-            colAction.DisplayMember = "Value";
-            colAction.ValueMember = "Key";
+            colAction.DisplayMember = "Value"; colAction.ValueMember = "Key";
             dgvTasks.Columns.Add(colAction);
 
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "SourceColumn", HeaderText = "転送元", Width = 200 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "DestColumn", HeaderText = "転送先", Width = 200 });
 
             var colMode = new DataGridViewComboBoxColumn { Name = "ModeColumn", HeaderText = "モード", Width = 150 };
-            colMode.DisplayMember = "Value";
-            colMode.ValueMember = "Key";
+            colMode.DisplayMember = "Value"; colMode.ValueMember = "Key";
             dgvTasks.Columns.Add(colMode);
 
             dgvTasks.Columns.Add(new DataGridViewCheckBoxColumn { Name = "DateColumn", HeaderText = "日付付与", Width = 70 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "StatusColumn", HeaderText = "ステータス", Width = 100, ReadOnly = true });
 
-            // 行操作ボタン列
             dgvTasks.Columns.Add(new DataGridViewButtonColumn { Name = "UpColumn", HeaderText = "上", Text = "▲", UseColumnTextForButtonValue = true, Width = 30 });
             dgvTasks.Columns.Add(new DataGridViewButtonColumn { Name = "DownColumn", HeaderText = "下", Text = "▼", UseColumnTextForButtonValue = true, Width = 30 });
             dgvTasks.Columns.Add(new DataGridViewButtonColumn { Name = "ExecColumn", HeaderText = "個別実行", Text = "▶", UseColumnTextForButtonValue = true, Width = 50 });
@@ -156,7 +117,6 @@ namespace FileTransfer2
             e.Row.Cells["ActionColumn"].Value = TransferAction.Copy;
             e.Row.Cells["DateColumn"].Value = false;
             e.Row.Cells["StatusColumn"].Value = "待機中";
-
             UpdateRowState(e.Row, TransferAction.Copy);
         }
 
@@ -169,15 +129,10 @@ namespace FileTransfer2
         private void dgvTasks_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0) return;
-
-            if (dgvTasks.Columns[e.ColumnIndex].Name == "ActionColumn")
+            if (dgvTasks.Columns[e.ColumnIndex].Name == "ActionColumn" && dgvTasks.Rows[e.RowIndex].Cells["ActionColumn"].Value is TransferAction action)
             {
-                if (dgvTasks.Rows[e.RowIndex].Cells["ActionColumn"].Value is TransferAction action)
-                {
-                    UpdateRowState(dgvTasks.Rows[e.RowIndex], action);
-                }
+                UpdateRowState(dgvTasks.Rows[e.RowIndex], action);
             }
-
             if (!_isLoading) SetDirty(true);
         }
 
@@ -194,35 +149,23 @@ namespace FileTransfer2
             if (action == TransferAction.Delete)
             {
                 modeCell.DataSource = new BindingSource(DeleteModeBindSource, null);
-                if (modeCell.Value == null || !DeleteModeBindSource.ContainsKey((TransferMode)modeCell.Value))
-                {
-                    modeCell.Value = TransferMode.DeleteAll;
-                }
-                destCell.Value = "";
-                destCell.ReadOnly = true;
-                destCell.Style.BackColor = Color.LightGray;
+                if (modeCell.Value == null || !DeleteModeBindSource.ContainsKey((TransferMode)modeCell.Value)) modeCell.Value = TransferMode.DeleteAll;
+                destCell.Value = ""; destCell.ReadOnly = true; destCell.Style.BackColor = Color.LightGray;
             }
             else
             {
                 modeCell.DataSource = new BindingSource(TransferModeBindSource, null);
-                if (modeCell.Value == null || !TransferModeBindSource.ContainsKey((TransferMode)modeCell.Value))
-                {
-                    modeCell.Value = TransferMode.FolderAsIs;
-                }
-                destCell.ReadOnly = false;
-                destCell.Style.BackColor = Color.White;
+                if (modeCell.Value == null || !TransferModeBindSource.ContainsKey((TransferMode)modeCell.Value)) modeCell.Value = TransferMode.FolderAsIs;
+                destCell.ReadOnly = false; destCell.Style.BackColor = Color.White;
             }
         }
 
         private void dgvTasks_DataError(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; }
 
-        #endregion
-
-        #region 3. プロファイル管理 (TSV設定の保存・読込)
-
         private void InitializeProfiles()
         {
-            if (!Directory.Exists(ProfilesDir)) Directory.CreateDirectory(ProfilesDir);
+            string profDir = _config.GetFullPath(_config.ProfilesDir);
+            if (!Directory.Exists(profDir)) Directory.CreateDirectory(profDir);
             RefreshProfileList();
         }
 
@@ -232,10 +175,8 @@ namespace FileTransfer2
             cmbProfiles.Items.Clear();
             cmbProfiles.Items.Add("未選択");
 
-            foreach (string file in Directory.GetFiles(ProfilesDir, "*.tsv"))
-            {
+            foreach (string file in Directory.GetFiles(_config.GetFullPath(_config.ProfilesDir), "*.tsv"))
                 cmbProfiles.Items.Add(Path.GetFileNameWithoutExtension(file));
-            }
 
             cmbProfiles.SelectedIndex = 0;
             cmbProfiles.SelectedIndexChanged += cmbProfiles_SelectedIndexChanged;
@@ -250,18 +191,14 @@ namespace FileTransfer2
                 return;
             }
 
-            if (_isDirty)
+            if (_isDirty && MessageBox.Show(_config.GetMsg("Msg_UnsavedWarn"), "未保存の確認", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
             {
-                var result = MessageBox.Show("変更が保存されていません。破棄して別のプロファイルを読み込みますか？", "未保存の確認", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                if (result == DialogResult.No)
-                {
-                    SetComboSelectionWithoutEvent(_currentProfile);
-                    return;
-                }
+                SetComboSelectionWithoutEvent(_currentProfile);
+                return;
             }
 
             string profileName = cmbProfiles.SelectedItem.ToString();
-            string filePath = Path.Combine(ProfilesDir, $"{profileName}.tsv");
+            string filePath = Path.Combine(_config.GetFullPath(_config.ProfilesDir), $"{profileName}.tsv");
 
             if (File.Exists(filePath))
             {
@@ -278,28 +215,25 @@ namespace FileTransfer2
 
         private void btnSave_Click(object sender, EventArgs e)
         {
+            string profDir = _config.GetFullPath(_config.ProfilesDir);
             if (cmbProfiles.SelectedIndex > 0)
             {
                 string profileName = cmbProfiles.SelectedItem.ToString();
-                var result = MessageBox.Show($"プロファイル '{profileName}' を上書き保存しますか？", "上書き保存の確認", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-
-                if (result == DialogResult.Yes)
+                if (MessageBox.Show(_config.GetMsg("Msg_OverwriteConfirm", profileName), "上書き保存の確認", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                 {
-                    string filePath = Path.Combine(ProfilesDir, $"{profileName}.tsv");
-                    SaveTsvLogic(filePath);
+                    SaveTsvLogic(Path.Combine(profDir, $"{profileName}.tsv"));
                     _currentProfile = profileName;
                     SetDirty(false);
                 }
             }
             else
             {
-                using (SaveFileDialog sfd = new SaveFileDialog { Filter = "TSVファイル (*.tsv)|*.tsv", Title = "名前を付けて保存", InitialDirectory = ProfilesDir, DefaultExt = "tsv" })
+                using (SaveFileDialog sfd = new SaveFileDialog { Filter = "TSVファイル (*.tsv)|*.tsv", Title = "名前を付けて保存", InitialDirectory = profDir, DefaultExt = "tsv" })
                 {
                     if (sfd.ShowDialog() == DialogResult.OK)
                     {
                         SaveTsvLogic(sfd.FileName);
                         RefreshProfileList();
-
                         string savedName = Path.GetFileNameWithoutExtension(sfd.FileName);
                         SetComboSelectionWithoutEvent(savedName);
                         _currentProfile = savedName;
@@ -318,25 +252,21 @@ namespace FileTransfer2
                     foreach (DataGridViewRow row in dgvTasks.Rows)
                     {
                         if (row.IsNewRow) continue;
-
                         TransferAction action = row.Cells["ActionColumn"].Value is TransferAction a ? a : TransferAction.Unknown;
                         TransferMode mode = row.Cells["ModeColumn"].Value is TransferMode m ? m : TransferMode.Unknown;
-
                         string actionStr = ActionBindSource.ContainsKey(action) ? ActionBindSource[action] : "";
                         string modeStr = AllModeDisplayDict.ContainsKey(mode) ? AllModeDisplayDict[mode] : "";
                         string src = row.Cells["SourceColumn"].Value?.ToString() ?? "";
                         string dest = row.Cells["DestColumn"].Value?.ToString() ?? "";
                         string addDate = Convert.ToBoolean(row.Cells["DateColumn"].Value ?? false).ToString();
-
                         sw.WriteLine($"{actionStr}\t{src}\t{dest}\t{modeStr}\t{addDate}");
                     }
                 }
-                WriteLog($"設定を保存しました: {Path.GetFileName(filePath)}");
+                WriteLog(_config.GetMsg("Msg_SaveSuccess", Path.GetFileName(filePath)));
             }
             catch (Exception ex)
             {
-                WriteLog($"保存エラー: {ex.Message}");
-                MessageBox.Show($"保存に失敗しました。\n{ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                WriteLog(_config.GetMsg("Msg_SaveError", ex.Message));
             }
         }
 
@@ -366,12 +296,9 @@ namespace FileTransfer2
                     row.Cells["ActionColumn"].Value = loadedAction;
                     row.Cells["SourceColumn"].Value = parts[1];
                     row.Cells["DestColumn"].Value = parts[2];
-
                     UpdateRowState(row, loadedAction);
 
-                    TransferMode loadedMode = ModeParseDict.ContainsKey(parts[3]) ? ModeParseDict[parts[3]] : TransferMode.FolderAsIs;
-                    row.Cells["ModeColumn"].Value = loadedMode;
-
+                    row.Cells["ModeColumn"].Value = ModeParseDict.ContainsKey(parts[3]) ? ModeParseDict[parts[3]] : TransferMode.FolderAsIs;
                     row.Cells["DateColumn"].Value = bool.TryParse(parts[4], out bool isDate) && isDate;
                     row.Cells["StatusColumn"].Value = "待機中";
                 }
@@ -381,27 +308,19 @@ namespace FileTransfer2
 
         private TransferAction ParseAction(string actionStr)
         {
-            switch (actionStr)
-            {
-                case "コピー": return TransferAction.Copy;
-                case "移動": return TransferAction.Move;
-                case "削除": return TransferAction.Delete;
-                default: return TransferAction.Unknown;
-            }
+            switch (actionStr) { case "コピー": return TransferAction.Copy; case "移動": return TransferAction.Move; case "削除": return TransferAction.Delete; default: return TransferAction.Unknown; }
         }
-
-        #endregion
-
-        #region 4. AutoRun (自動実行) 監視機能
 
         private void InitializeAutoRun()
         {
-            if (!Directory.Exists(AutoRunPlanDir)) Directory.CreateDirectory(AutoRunPlanDir);
-            if (!Directory.Exists(AutoRunDoneDir)) Directory.CreateDirectory(AutoRunDoneDir);
+            string planDir = _config.GetFullPath(_config.AutoRunPlanDir);
+            string doneDir = _config.GetFullPath(_config.AutoRunDoneDir);
+            if (!Directory.Exists(planDir)) Directory.CreateDirectory(planDir);
+            if (!Directory.Exists(doneDir)) Directory.CreateDirectory(doneDir);
 
-            autoRunTimer = new Timer { Interval = 30000 };
+            autoRunTimer = new Timer { Interval = _config.AutoRunIntervalMs };
             autoRunTimer.Tick += AutoRunTimer_Tick;
-            WriteLog("システム: AutoRunの待機準備が完了しました。(監視はOFFです)");
+            WriteLog(_config.GetMsg("Msg_SysAutoRunReady"));
         }
 
         private void chkAutoRun_CheckedChanged(object sender, EventArgs e)
@@ -409,70 +328,55 @@ namespace FileTransfer2
             if (chkAutoRun.Checked)
             {
                 autoRunTimer.Start();
-                WriteLog("システム: AutoRun/Plan フォルダの監視を開始しました。(30秒間隔)");
+                WriteLog(_config.GetMsg("Msg_SysAutoRunStart", _config.AutoRunIntervalMs));
             }
             else
             {
                 autoRunTimer.Stop();
-                WriteLog("システム: AutoRun/Plan フォルダの監視を停止しました。");
+                WriteLog(_config.GetMsg("Msg_SysAutoRunStop"));
             }
         }
 
         private async void AutoRunTimer_Tick(object sender, EventArgs e)
         {
             autoRunTimer.Stop();
-
             try
             {
-                foreach (string filePath in Directory.GetFiles(AutoRunPlanDir, "*.tsv"))
+                foreach (string filePath in Directory.GetFiles(_config.GetFullPath(_config.AutoRunPlanDir), "*.tsv"))
                 {
                     if (IsFileLocked(filePath))
                     {
-                        WriteLog($"自動実行: {Path.GetFileName(filePath)} は書き込み中のためスキップします。");
+                        WriteLog(_config.GetMsg("Msg_AutoRunSkipLock", Path.GetFileName(filePath)));
                         continue;
                     }
 
-                    WriteLog($"自動実行: {Path.GetFileName(filePath)} の設定を検出しました。実行を開始します。");
-
+                    WriteLog(_config.GetMsg("Msg_AutoRunDetect", Path.GetFileName(filePath)));
                     LoadTsv(filePath);
                     _currentProfile = "自動実行中";
                     SetDirty(false);
 
                     await ExecuteAllTasksAsync();
-                    MoveFileToDone(filePath);
+
+                    string donePath = Path.Combine(_config.GetFullPath(_config.AutoRunDoneDir), Path.GetFileName(filePath));
+                    if (File.Exists(donePath))
+                    {
+                        string name = Path.GetFileNameWithoutExtension(filePath);
+                        string ext = Path.GetExtension(filePath);
+                        donePath = Path.Combine(_config.GetFullPath(_config.AutoRunDoneDir), $"{name}_{DateTime.Now:yyyyMMddHHmmss}{ext}");
+                    }
+                    File.Move(filePath, donePath);
+                    WriteLog(_config.GetMsg("Msg_AutoRunDone"));
                 }
             }
-            catch (Exception ex) { WriteLog($"自動実行エラー: {ex.Message}"); }
+            catch (Exception ex) { WriteLog(_config.GetMsg("Msg_AutoRunError", ex.Message)); }
             finally { if (chkAutoRun.Checked) autoRunTimer.Start(); }
         }
 
         private bool IsFileLocked(string filePath)
         {
-            try
-            {
-                using (File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.None)) { return false; }
-            }
+            try { using (File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.None)) { return false; } }
             catch (IOException) { return true; }
         }
-
-        private void MoveFileToDone(string filePath)
-        {
-            string fileName = Path.GetFileName(filePath);
-            string donePath = Path.Combine(AutoRunDoneDir, fileName);
-
-            if (File.Exists(donePath))
-            {
-                string name = Path.GetFileNameWithoutExtension(fileName);
-                string ext = Path.GetExtension(fileName);
-                donePath = Path.Combine(AutoRunDoneDir, $"{name}_{DateTime.Now:yyyyMMddHHmmss}{ext}");
-            }
-            File.Move(filePath, donePath);
-            WriteLog($"自動実行: 完了した設定ファイルを Done フォルダへ移動しました。");
-        }
-
-        #endregion
-
-        #region 5. 実行処理・行操作
 
         private async void btnExecuteAll_Click(object sender, EventArgs e)
         {
@@ -484,24 +388,20 @@ namespace FileTransfer2
         private async Task ExecuteAllTasksAsync()
         {
             btnExecuteAll.Enabled = false;
-            WriteLog("=== 一括処理を開始します ===");
+            WriteLog(_config.GetMsg("Msg_ExecAllStart"));
 
-            foreach (DataGridViewRow row in dgvTasks.Rows)
-            {
-                if (!row.IsNewRow) row.Cells["StatusColumn"].Value = "待機中";
-            }
+            foreach (DataGridViewRow row in dgvTasks.Rows) if (!row.IsNewRow) row.Cells["StatusColumn"].Value = "待機中";
 
             for (int i = 0; i < dgvTasks.Rows.Count; i++)
             {
                 DataGridViewRow row = dgvTasks.Rows[i];
                 if (row.IsNewRow) continue;
 
-                if (!TryExtractRowData(row, out var action, out var src, out var dest, out var mode, out var addDate))
-                    continue;
+                if (!TryExtractRowData(row, out var action, out var src, out var dest, out var mode, out var addDate)) continue;
 
                 row.Cells["StatusColumn"].Value = "処理中...";
-                string actionDisp = ActionBindSource.ContainsKey(action) ? ActionBindSource[action] : "不明な処理";
-                WriteLog($"[{i + 1}行目] {actionDisp}開始: {src}");
+                string actionDisp = ActionBindSource.ContainsKey(action) ? ActionBindSource[action] : "不明";
+                WriteLog(_config.GetMsg("Msg_RowStart", i + 1, actionDisp, src));
 
                 try
                 {
@@ -510,52 +410,43 @@ namespace FileTransfer2
                     if (result == ProcessResult.Success)
                     {
                         row.Cells["StatusColumn"].Value = "完了";
-                        WriteLog($"[{i + 1}行目] 正常完了");
+                        WriteLog(_config.GetMsg("Msg_RowSuccess", i + 1));
                     }
                     else if (result == ProcessResult.CompletedWithWarnings)
                     {
                         row.Cells["StatusColumn"].Value = "完了(一部ｽｷｯﾌﾟ)";
-                        WriteLog($"[{i + 1}行目] 完了しましたが、一部のファイルがスキップされました。");
+                        WriteLog(_config.GetMsg("Msg_RowWarning", i + 1));
                     }
-                    else
-                    {
-                        row.Cells["StatusColumn"].Value = "スキップ";
-                    }
+                    else row.Cells["StatusColumn"].Value = "スキップ";
                 }
                 catch (Exception ex)
                 {
                     row.Cells["StatusColumn"].Value = "エラー";
-                    WriteLog($"[{i + 1}行目] 致命的なエラー: {ex.Message}");
-                    WriteLog("安全のため、後続の処理をすべて中断しました。");
+                    WriteLog(_config.GetMsg("Msg_RowFatal", i + 1, ex.Message));
+                    WriteLog(_config.GetMsg("Msg_RowAbort"));
                     CancelRemainingTasks(i + 1);
                     break;
                 }
+
+                // 【追加】1行実行ごとのディレイ設定
+                if (_config.RowDelayMs > 0) await Task.Delay(_config.RowDelayMs);
             }
 
-            WriteLog("=== 一括処理が終了しました ===");
+            WriteLog(_config.GetMsg("Msg_ExecAllEnd"));
             btnExecuteAll.Enabled = true;
         }
 
         private async void dgvTasks_CellContentClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0 || dgvTasks.Rows[e.RowIndex].IsNewRow) return;
-
             string colName = dgvTasks.Columns[e.ColumnIndex].Name;
 
-            if (colName == "DelColumn")
-            {
-                dgvTasks.Rows.RemoveAt(e.RowIndex);
-                SetDirty(true);
-                return;
-            }
-
+            if (colName == "DelColumn") { dgvTasks.Rows.RemoveAt(e.RowIndex); SetDirty(true); return; }
             if (colName == "UpColumn" || colName == "DownColumn")
             {
                 dgvTasks.EndEdit();
-                int direction = (colName == "UpColumn") ? -1 : 1;
-                MoveRow(e.RowIndex, direction);
-                SetDirty(true);
-                return;
+                MoveRow(e.RowIndex, colName == "UpColumn" ? -1 : 1);
+                SetDirty(true); return;
             }
 
             if (colName == "ExecColumn")
@@ -564,54 +455,42 @@ namespace FileTransfer2
                 dgvTasks.EndEdit();
 
                 DataGridViewRow row = dgvTasks.Rows[e.RowIndex];
-
                 if (!TryExtractRowData(row, out var action, out var src, out var dest, out var mode, out var addDate))
                 {
-                    WriteLog($"[{e.RowIndex + 1}行目] 入力エラー: 処理種別と転送元は必須入力です。");
-                    return;
+                    WriteLog(_config.GetMsg("Msg_InputError", e.RowIndex + 1)); return;
                 }
 
                 row.Cells["StatusColumn"].Value = "処理中...";
-                WriteLog($"[{e.RowIndex + 1}行目] 個別実行を開始: {src}");
+                string actionDisp = ActionBindSource.ContainsKey(action) ? ActionBindSource[action] : "不明";
+                WriteLog(_config.GetMsg("Msg_RowStart", e.RowIndex + 1, actionDisp, src));
 
                 try
                 {
                     ProcessResult result = await Task.Run(() => transferEngine.ProcessRow(action, src, dest, mode, addDate, e.RowIndex + 1));
-
-                    if (result == ProcessResult.Success)
-                    {
-                        row.Cells["StatusColumn"].Value = "完了";
-                        WriteLog($"[{e.RowIndex + 1}行目] 個別実行が正常完了");
-                    }
-                    else if (result == ProcessResult.CompletedWithWarnings)
-                    {
-                        row.Cells["StatusColumn"].Value = "完了(一部ｽｷｯﾌﾟ)";
-                        WriteLog($"[{e.RowIndex + 1}行目] 完了しましたが、一部のファイルがスキップされました。");
-                    }
-                    else
-                    {
-                        row.Cells["StatusColumn"].Value = "スキップ";
-                    }
+                    if (result == ProcessResult.Success) { row.Cells["StatusColumn"].Value = "完了"; WriteLog(_config.GetMsg("Msg_RowSuccess", e.RowIndex + 1)); }
+                    else if (result == ProcessResult.CompletedWithWarnings) { row.Cells["StatusColumn"].Value = "完了(一部ｽｷｯﾌﾟ)"; WriteLog(_config.GetMsg("Msg_RowWarning", e.RowIndex + 1)); }
+                    else { row.Cells["StatusColumn"].Value = "スキップ"; }
                 }
                 catch (Exception ex)
                 {
-                    row.Cells["StatusColumn"].Value = "エラー";
-                    WriteLog($"[{e.RowIndex + 1}行目] エラー: {ex.Message}");
+                    row.Cells["StatusColumn"].Value = "エラー"; WriteLog(_config.GetMsg("Msg_RowFatal", e.RowIndex + 1, ex.Message));
                 }
             }
         }
-
+        public void LogGlobalError(Exception ex)
+        {
+            WriteLog(_config.GetMsg("Msg_GlobalErrorAlert"));
+            WriteLog(_config.GetMsg("Msg_GlobalErrorDetail", ex.Message));
+        }
         private void MoveRow(int rowIndex, int direction)
         {
             if (rowIndex < 0 || rowIndex >= dgvTasks.Rows.Count - 1) return;
-
             int targetIndex = rowIndex + direction;
             if (targetIndex < 0 || targetIndex >= dgvTasks.Rows.Count - 1) return;
 
             DataGridViewRow row = dgvTasks.Rows[rowIndex];
             dgvTasks.Rows.RemoveAt(rowIndex);
             dgvTasks.Rows.Insert(targetIndex, row);
-
             dgvTasks.ClearSelection();
             dgvTasks.CurrentCell = dgvTasks.Rows[targetIndex].Cells[0];
             dgvTasks.Rows[targetIndex].Selected = true;
@@ -624,10 +503,7 @@ namespace FileTransfer2
             src = row.Cells["SourceColumn"].Value?.ToString() ?? "";
             dest = row.Cells["DestColumn"].Value?.ToString() ?? "";
             addDate = Convert.ToBoolean(row.Cells["DateColumn"].Value ?? false);
-
-            if (action == TransferAction.Unknown || string.IsNullOrWhiteSpace(src)) return false;
-
-            return true;
+            return action != TransferAction.Unknown && !string.IsNullOrWhiteSpace(src);
         }
 
         private void CancelRemainingTasks(int startIndex)
@@ -635,13 +511,8 @@ namespace FileTransfer2
             for (int j = startIndex; j < dgvTasks.Rows.Count; j++)
             {
                 DataGridViewRow nextRow = dgvTasks.Rows[j];
-                if (!nextRow.IsNewRow && nextRow.Cells["ActionColumn"].Value != null)
-                {
-                    nextRow.Cells["StatusColumn"].Value = "未実行";
-                }
+                if (!nextRow.IsNewRow && nextRow.Cells["ActionColumn"].Value != null) nextRow.Cells["StatusColumn"].Value = "未実行";
             }
         }
-
-        #endregion
     }
 }
