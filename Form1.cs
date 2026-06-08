@@ -16,8 +16,9 @@ namespace FileTransfer2
 
         private bool _isDirty = false;
         private bool _isLoading = false;
-        private string _currentProfile = "未選択";
+        private string _currentProfile = "";
 
+        // ※コンボボックスのリスト（GUI要素）はコード内で定義し、表示・ログ等はすべてAppConfigから引く
         private static readonly Dictionary<TransferAction, string> ActionBindSource = new Dictionary<TransferAction, string>
         { { TransferAction.Copy, "コピー" }, { TransferAction.Move, "移動" }, { TransferAction.Delete, "削除" } };
 
@@ -46,7 +47,8 @@ namespace FileTransfer2
             InitializeComponent();
 
             _config = new AppConfig();
-            _config.Load(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.ini"));
+            _config.Load();
+            _currentProfile = _config.GetMsg("UI_ProfileUnselected");
 
             SetupDataGridView();
             transferEngine = new FileTransferEngine(WriteLog, _config);
@@ -69,6 +71,12 @@ namespace FileTransfer2
             SetDirty(false);
         }
 
+        public void LogGlobalError(Exception ex)
+        {
+            WriteLog(_config.GetMsg("Msg_GlobalErrorAlert"));
+            WriteLog(_config.GetMsg("Msg_GlobalErrorDetail", ex.Message));
+        }
+
         private void WriteLog(string message)
         {
             if (txtLog.InvokeRequired)
@@ -82,8 +90,8 @@ namespace FileTransfer2
         private void SetDirty(bool isDirty)
         {
             _isDirty = isDirty;
-            string dirtyMark = _isDirty ? " (*未保存)" : "";
-            this.Text = $"ファイル転送ツール - [{_currentProfile}]{dirtyMark}";
+            string dirtyMark = _isDirty ? _config.GetMsg("UI_DirtyMark") : "";
+            this.Text = _config.GetMsg("UI_TitleFormat", _currentProfile, dirtyMark);
         }
 
         private void SetupDataGridView()
@@ -116,7 +124,7 @@ namespace FileTransfer2
         {
             e.Row.Cells["ActionColumn"].Value = TransferAction.Copy;
             e.Row.Cells["DateColumn"].Value = false;
-            e.Row.Cells["StatusColumn"].Value = "待機中";
+            e.Row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Wait");
             UpdateRowState(e.Row, TransferAction.Copy);
         }
 
@@ -129,11 +137,20 @@ namespace FileTransfer2
         private void dgvTasks_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0) return;
-            if (dgvTasks.Columns[e.ColumnIndex].Name == "ActionColumn" && dgvTasks.Rows[e.RowIndex].Cells["ActionColumn"].Value is TransferAction action)
+
+            string colName = dgvTasks.Columns[e.ColumnIndex].Name;
+
+            // 処理種別が変更された場合は、転送先やモードのUI状態を更新
+            if (colName == "ActionColumn" && dgvTasks.Rows[e.RowIndex].Cells["ActionColumn"].Value is TransferAction action)
             {
                 UpdateRowState(dgvTasks.Rows[e.RowIndex], action);
             }
-            if (!_isLoading) SetDirty(true);
+
+            // 【修正】プログラムが自動更新する「ステータス列」の変更は、未保存(Dirty)扱いとしない
+            if (!_isLoading && colName != "StatusColumn")
+            {
+                SetDirty(true);
+            }
         }
 
         private void dgvTasks_RowsRemoved(object sender, DataGridViewRowsRemovedEventArgs e)
@@ -173,7 +190,7 @@ namespace FileTransfer2
         {
             cmbProfiles.SelectedIndexChanged -= cmbProfiles_SelectedIndexChanged;
             cmbProfiles.Items.Clear();
-            cmbProfiles.Items.Add("未選択");
+            cmbProfiles.Items.Add(_config.GetMsg("UI_ProfileUnselected"));
 
             foreach (string file in Directory.GetFiles(_config.GetFullPath(_config.ProfilesDir), "*.tsv"))
                 cmbProfiles.Items.Add(Path.GetFileNameWithoutExtension(file));
@@ -186,12 +203,12 @@ namespace FileTransfer2
         {
             if (cmbProfiles.SelectedIndex <= 0)
             {
-                _currentProfile = "未選択";
+                _currentProfile = _config.GetMsg("UI_ProfileUnselected");
                 SetDirty(false);
                 return;
             }
 
-            if (_isDirty && MessageBox.Show(_config.GetMsg("Msg_UnsavedWarn"), "未保存の確認", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
+            if (_isDirty && MessageBox.Show(_config.GetMsg("Msg_UnsavedWarn"), _config.GetMsg("Msg_UnsavedTitle"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
             {
                 SetComboSelectionWithoutEvent(_currentProfile);
                 return;
@@ -205,11 +222,11 @@ namespace FileTransfer2
                 try
                 {
                     LoadTsv(filePath);
-                    WriteLog($"設定パターン [{profileName}] に切り替えました。");
+                    WriteLog(_config.GetMsg("Msg_ProfileSwitched", profileName));
                     _currentProfile = profileName;
                     SetDirty(false);
                 }
-                catch (Exception ex) { WriteLog($"切替失敗: {ex.Message}"); }
+                catch (Exception ex) { WriteLog(_config.GetMsg("Msg_ProfileSwitchFail", ex.Message)); }
             }
         }
 
@@ -219,7 +236,7 @@ namespace FileTransfer2
             if (cmbProfiles.SelectedIndex > 0)
             {
                 string profileName = cmbProfiles.SelectedItem.ToString();
-                if (MessageBox.Show(_config.GetMsg("Msg_OverwriteConfirm", profileName), "上書き保存の確認", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                if (MessageBox.Show(_config.GetMsg("Msg_OverwriteConfirm", profileName), _config.GetMsg("Msg_OverwriteTitle"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                 {
                     SaveTsvLogic(Path.Combine(profDir, $"{profileName}.tsv"));
                     _currentProfile = profileName;
@@ -267,6 +284,7 @@ namespace FileTransfer2
             catch (Exception ex)
             {
                 WriteLog(_config.GetMsg("Msg_SaveError", ex.Message));
+                MessageBox.Show(_config.GetMsg("Msg_SaveError", ex.Message), _config.GetMsg("Msg_SaveErrorTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -300,7 +318,7 @@ namespace FileTransfer2
 
                     row.Cells["ModeColumn"].Value = ModeParseDict.ContainsKey(parts[3]) ? ModeParseDict[parts[3]] : TransferMode.FolderAsIs;
                     row.Cells["DateColumn"].Value = bool.TryParse(parts[4], out bool isDate) && isDate;
-                    row.Cells["StatusColumn"].Value = "待機中";
+                    row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Wait");
                 }
             }
             _isLoading = false;
@@ -352,7 +370,7 @@ namespace FileTransfer2
 
                     WriteLog(_config.GetMsg("Msg_AutoRunDetect", Path.GetFileName(filePath)));
                     LoadTsv(filePath);
-                    _currentProfile = "自動実行中";
+                    _currentProfile = _config.GetMsg("UI_AutoRunning");
                     SetDirty(false);
 
                     await ExecuteAllTasksAsync();
@@ -390,7 +408,7 @@ namespace FileTransfer2
             btnExecuteAll.Enabled = false;
             WriteLog(_config.GetMsg("Msg_ExecAllStart"));
 
-            foreach (DataGridViewRow row in dgvTasks.Rows) if (!row.IsNewRow) row.Cells["StatusColumn"].Value = "待機中";
+            foreach (DataGridViewRow row in dgvTasks.Rows) if (!row.IsNewRow) row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Wait");
 
             for (int i = 0; i < dgvTasks.Rows.Count; i++)
             {
@@ -399,7 +417,7 @@ namespace FileTransfer2
 
                 if (!TryExtractRowData(row, out var action, out var src, out var dest, out var mode, out var addDate)) continue;
 
-                row.Cells["StatusColumn"].Value = "処理中...";
+                row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Proc");
                 string actionDisp = ActionBindSource.ContainsKey(action) ? ActionBindSource[action] : "不明";
                 WriteLog(_config.GetMsg("Msg_RowStart", i + 1, actionDisp, src));
 
@@ -409,26 +427,25 @@ namespace FileTransfer2
 
                     if (result == ProcessResult.Success)
                     {
-                        row.Cells["StatusColumn"].Value = "完了";
+                        row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Done");
                         WriteLog(_config.GetMsg("Msg_RowSuccess", i + 1));
                     }
                     else if (result == ProcessResult.CompletedWithWarnings)
                     {
-                        row.Cells["StatusColumn"].Value = "完了(一部ｽｷｯﾌﾟ)";
+                        row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Warn");
                         WriteLog(_config.GetMsg("Msg_RowWarning", i + 1));
                     }
-                    else row.Cells["StatusColumn"].Value = "スキップ";
+                    else row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Skip");
                 }
                 catch (Exception ex)
                 {
-                    row.Cells["StatusColumn"].Value = "エラー";
+                    row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Err");
                     WriteLog(_config.GetMsg("Msg_RowFatal", i + 1, ex.Message));
                     WriteLog(_config.GetMsg("Msg_RowAbort"));
                     CancelRemainingTasks(i + 1);
                     break;
                 }
 
-                // 【追加】1行実行ごとのディレイ設定
                 if (_config.RowDelayMs > 0) await Task.Delay(_config.RowDelayMs);
             }
 
@@ -460,28 +477,24 @@ namespace FileTransfer2
                     WriteLog(_config.GetMsg("Msg_InputError", e.RowIndex + 1)); return;
                 }
 
-                row.Cells["StatusColumn"].Value = "処理中...";
+                row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Proc");
                 string actionDisp = ActionBindSource.ContainsKey(action) ? ActionBindSource[action] : "不明";
                 WriteLog(_config.GetMsg("Msg_RowStart", e.RowIndex + 1, actionDisp, src));
 
                 try
                 {
                     ProcessResult result = await Task.Run(() => transferEngine.ProcessRow(action, src, dest, mode, addDate, e.RowIndex + 1));
-                    if (result == ProcessResult.Success) { row.Cells["StatusColumn"].Value = "完了"; WriteLog(_config.GetMsg("Msg_RowSuccess", e.RowIndex + 1)); }
-                    else if (result == ProcessResult.CompletedWithWarnings) { row.Cells["StatusColumn"].Value = "完了(一部ｽｷｯﾌﾟ)"; WriteLog(_config.GetMsg("Msg_RowWarning", e.RowIndex + 1)); }
-                    else { row.Cells["StatusColumn"].Value = "スキップ"; }
+                    if (result == ProcessResult.Success) { row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Done"); WriteLog(_config.GetMsg("Msg_RowSuccess", e.RowIndex + 1)); }
+                    else if (result == ProcessResult.CompletedWithWarnings) { row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Warn"); WriteLog(_config.GetMsg("Msg_RowWarning", e.RowIndex + 1)); }
+                    else { row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Skip"); }
                 }
                 catch (Exception ex)
                 {
-                    row.Cells["StatusColumn"].Value = "エラー"; WriteLog(_config.GetMsg("Msg_RowFatal", e.RowIndex + 1, ex.Message));
+                    row.Cells["StatusColumn"].Value = _config.GetMsg("Status_Err"); WriteLog(_config.GetMsg("Msg_RowFatal", e.RowIndex + 1, ex.Message));
                 }
             }
         }
-        public void LogGlobalError(Exception ex)
-        {
-            WriteLog(_config.GetMsg("Msg_GlobalErrorAlert"));
-            WriteLog(_config.GetMsg("Msg_GlobalErrorDetail", ex.Message));
-        }
+
         private void MoveRow(int rowIndex, int direction)
         {
             if (rowIndex < 0 || rowIndex >= dgvTasks.Rows.Count - 1) return;
@@ -511,7 +524,7 @@ namespace FileTransfer2
             for (int j = startIndex; j < dgvTasks.Rows.Count; j++)
             {
                 DataGridViewRow nextRow = dgvTasks.Rows[j];
-                if (!nextRow.IsNewRow && nextRow.Cells["ActionColumn"].Value != null) nextRow.Cells["StatusColumn"].Value = "未実行";
+                if (!nextRow.IsNewRow && nextRow.Cells["ActionColumn"].Value != null) nextRow.Cells["StatusColumn"].Value = _config.GetMsg("Status_Unexec");
             }
         }
     }
