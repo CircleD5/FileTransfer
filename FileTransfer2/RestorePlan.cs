@@ -55,11 +55,17 @@ namespace FileTransfer2
             return Path.Combine(Path.GetDirectoryName(planPath) ?? "", name);
         }
 
+        /// <summary>
+        /// 復元の行を1つ作る。
+        /// </summary>
         private static TransferTask NewRestore(string backupRoot, string target)
         {
             return new TransferTask { Action = TransferAction.Restore, Source = backupRoot, Destination = target, Mode = TransferMode.RestoreReplace };
         }
 
+        /// <summary>
+        /// 入力されたパス（前後の " や相対パスも可）を絶対パスにする。エンジンと同じ解釈にそろえる。
+        /// </summary>
         private static string ToFullPath(string path, AppConfig config)
         {
             return Path.GetFullPath(config.GetFullPath(path.Trim().Trim('"')));

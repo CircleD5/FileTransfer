@@ -12,6 +12,9 @@ namespace FileTransfer2
     /// </summary>
     public class ConfigException : Exception
     {
+        /// <summary>
+        /// 設定エラーの例外を作る。message は、そのまま画面に表示する文言。
+        /// </summary>
         public ConfigException(string message) : base(message) { }
     }
 
@@ -27,17 +30,29 @@ namespace FileTransfer2
     {
         public const string DefaultSettingsFile = "settings.config";
 
+        /// <summary>自動処理で Plan フォルダを確認する間隔（ミリ秒）</summary>
         public int AutoRunIntervalMs { get; private set; }
+        /// <summary>行と行の間の待ち時間（ミリ秒）</summary>
         public int RowDelayMs { get; private set; }
+        /// <summary>自動処理の計画ファイル（TSV）を置くフォルダ</summary>
         public string AutoRunPlanDir { get; private set; }
+        /// <summary>自動処理で成功した計画ファイルを移すフォルダ</summary>
         public string AutoRunDoneDir { get; private set; }
+        /// <summary>自動処理で失敗した計画ファイルを移すフォルダ</summary>
         public string AutoRunErrorDir { get; private set; }
+        /// <summary>プロファイル（TSV）の保存先</summary>
         public string ProfilesDir { get; private set; }
+        /// <summary>ログ（日付ごとのログと deploy_history.log）の出力先</summary>
         public string LogDir { get; private set; }
+        /// <summary>日付ごとのログを残す日数（0 なら消さない）</summary>
         public int LogRetentionDays { get; private set; }
+        /// <summary>文言ファイル（messages.json）の場所</summary>
         public string MessagesFile { get; private set; }
+        /// <summary>実行を禁止するパスの一覧ファイルの場所</summary>
         public string ForbiddenPathsFile { get; private set; }
+        /// <summary>配置のときに本番フォルダを退避する先（この下にリリース番号のフォルダができる）</summary>
         public string BackupDir { get; private set; }
+        /// <summary>配置のときに本番に残すものの一覧ファイルの場所</summary>
         public string DeployKeepFile { get; private set; }
         /// <summary>起動時に読み込むプロファイルの名前（"" なら読み込まない）</summary>
         public string DefaultProfile { get; private set; }
@@ -45,6 +60,7 @@ namespace FileTransfer2
         /// <summary>画面やログに出す文言</summary>
         public Messages Msg { get; private set; }
 
+        /// <summary>実行を禁止するパスの一覧（完全一致で比べる）</summary>
         public IReadOnlyList<string> ForbiddenPaths => _forbiddenPaths;
         /// <summary>配置のときに本番フォルダに残すもの（配置先フォルダから見た相対パス）</summary>
         public IReadOnlyList<string> DeployKeepPaths => _deployKeepPaths;
@@ -156,6 +172,10 @@ namespace FileTransfer2
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, relativeOrAbsolutePath);
         }
 
+        /// <summary>
+        /// 必須の文字列の項目を読む。ない・空なら、エラーの一覧に足して null を返す。
+        /// （エラーは最後にまとめて表示するので、ここでは例外にしない）
+        /// </summary>
         private static string GetString(Dictionary<string, string> settings, string key, List<string> errors)
         {
             if (settings.TryGetValue(key, out string value) && value.Length > 0) return value;
@@ -173,6 +193,9 @@ namespace FileTransfer2
             return "";
         }
 
+        /// <summary>
+        /// 必須の整数の項目を読む。ない・数字でない・min より小さいなら、エラーの一覧に足して 0 を返す。
+        /// </summary>
         private static int GetInt(Dictionary<string, string> settings, string key, int min, List<string> errors)
         {
             string value = GetString(settings, key, errors);

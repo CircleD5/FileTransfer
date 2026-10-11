@@ -27,6 +27,10 @@ namespace FileTransfer2
         // 処理種別のプルダウンの表示名（messages.json の Actions から作る）
         private Dictionary<TransferAction, string> _actionNames;
 
+        /// <summary>
+        /// 画面を作る。文言・一覧の列・イベントを準備し、自動処理・古いログの整理・プロファイルの一覧を用意して、
+        /// DefaultProfile が設定されていれば読み込む。
+        /// </summary>
         public Form1(AppConfig config)
         {
             InitializeComponent();
@@ -65,6 +69,9 @@ namespace FileTransfer2
 
         #region 画面の準備
 
+        /// <summary>
+        /// ボタンなどの文字を messages.json の文言にする（Designer に書いた文字は、画面を作るときの仮のもの）。
+        /// </summary>
         private void ApplyTexts()
         {
             btnExecuteAll.Text = _msg.Ui.BtnExecuteAll;
@@ -78,6 +85,9 @@ namespace FileTransfer2
             _actionNames = TransferTask.Actions.ToDictionary(a => a, a => _msg.Actions[a]);
         }
 
+        /// <summary>
+        /// 一覧（DataGridView）の列を作る。列の見出しは messages.json から取る。
+        /// </summary>
         private void SetupDataGridView()
         {
             dgvTasks.AutoGenerateColumns = false;
@@ -106,6 +116,9 @@ namespace FileTransfer2
             dgvTasks.Columns.Add(NewButtonColumn("DelColumn", _msg.Column.Delete, "×", 40));
         }
 
+        /// <summary>
+        /// ボタンの列を1つ作る（…・▲・▼・▶・× の列）。
+        /// </summary>
         private DataGridViewButtonColumn NewButtonColumn(string name, string headerText, string buttonText, int width)
         {
             return new DataGridViewButtonColumn { Name = name, HeaderText = headerText, Text = buttonText, UseColumnTextForButtonValue = true, Width = width };
@@ -115,6 +128,9 @@ namespace FileTransfer2
 
         #region ログ
 
+        /// <summary>
+        /// 予期しない例外をログに出す（画面の処理中に起きた例外を、Program から受け取る）。
+        /// </summary>
         public void LogGlobalError(Exception ex)
         {
             WriteLog(_msg.Error.GlobalAlert);
@@ -174,11 +190,17 @@ namespace FileTransfer2
 
         #region 一覧（グリッド）の操作
 
+        /// <summary>
+        /// 一覧の新規入力用の行に入力し始めたとき、初期値を入れる。
+        /// </summary>
         private void dgvTasks_DefaultValuesNeeded(object sender, DataGridViewRowEventArgs e)
         {
             SetDefaultValues(e.Row);
         }
 
+        /// <summary>
+        /// 行に初期値（処理種別はコピー、日付付与なし、ステータスは待機中）を入れる。
+        /// </summary>
         private void SetDefaultValues(DataGridViewRow row)
         {
             row.Cells["ActionColumn"].Value = TransferAction.Copy;
@@ -187,6 +209,9 @@ namespace FileTransfer2
             UpdateRowState(row, TransferAction.Copy);
         }
 
+        /// <summary>
+        /// セルを編集している途中に呼ばれる。プルダウンだけは、選んだ時点で値を確定させる。
+        /// </summary>
         private void dgvTasks_CurrentCellDirtyStateChanged(object sender, EventArgs e)
         {
             // プルダウンは選んだ時点で確定させる（確定しないと CellValueChanged が来ない）
@@ -194,6 +219,10 @@ namespace FileTransfer2
                 dgvTasks.CommitEdit(DataGridViewDataErrorContexts.Commit);
         }
 
+        /// <summary>
+        /// セルの値が変わったとき：処理種別なら行の状態（モードの選択肢・入力できるセル）を切り替え、
+        /// ステータス以外の変更なら「未保存」にする。
+        /// </summary>
         private void dgvTasks_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0) return;
@@ -213,6 +242,9 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// 行が消されたら「未保存」にする（プロファイルの読み込みで消したときを除く）。
+        /// </summary>
         private void dgvTasks_RowsRemoved(object sender, DataGridViewRowsRemovedEventArgs e)
         {
             if (!_isLoading) SetDirty(true);
@@ -259,6 +291,9 @@ namespace FileTransfer2
         // 一覧にない値（TSV の不正な値など）は空欄で表示し、実行時に入力エラーとして止める
         private void dgvTasks_DataError(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; }
 
+        /// <summary>
+        /// 一覧の中のボタン（…・▲・▼・▶・×）が押されたときの処理。
+        /// </summary>
         private async void dgvTasks_CellContentClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0) return;
@@ -287,6 +322,10 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// 「…」ボタン：フォルダを選ぶ画面を開き、選んだフォルダをセルに入れる。
+        /// 新規入力用の行なら、行を足してから入れる。削除の行の転送先のように入力できないセルでは何もしない。
+        /// </summary>
         private void BrowseFolder(int rowIndex, string targetColumn)
         {
             DataGridViewRow row = dgvTasks.Rows[rowIndex];
@@ -308,6 +347,9 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// 行を1つ上（direction が -1）または下（+1）へ動かす。端の行や、新規入力用の行とは入れ替えない。
+        /// </summary>
         private void MoveRow(int rowIndex, int direction)
         {
             int targetIndex = rowIndex + direction;
@@ -322,12 +364,18 @@ namespace FileTransfer2
             dgvTasks.Rows[targetIndex].Selected = true;
         }
 
+        /// <summary>
+        /// 編集中のセルの値を確定させる（保存や実行の前に呼ぶ）。
+        /// </summary>
         private void CommitGridEdit()
         {
             if (dgvTasks.IsCurrentCellDirty) dgvTasks.CommitEdit(DataGridViewDataErrorContexts.Commit);
             dgvTasks.EndEdit();
         }
 
+        /// <summary>
+        /// 一覧の1行を TransferTask にする。
+        /// </summary>
         private TransferTask ReadTask(DataGridViewRow row)
         {
             return new TransferTask
@@ -340,11 +388,17 @@ namespace FileTransfer2
             };
         }
 
+        /// <summary>
+        /// 一覧の行のうち、一番下の新規入力用の行を除いたものを返す。
+        /// </summary>
         private List<DataGridViewRow> GetTaskRows()
         {
             return dgvTasks.Rows.Cast<DataGridViewRow>().Where(row => !row.IsNewRow).ToList();
         }
 
+        /// <summary>
+        /// TransferTask の一覧を、画面の一覧に入れ直す。読み込みによる変更は「未保存」にしない。
+        /// </summary>
         private void LoadRows(List<TransferTask> tasks)
         {
             _isLoading = true;
@@ -369,6 +423,9 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// 行のステータス列に文字を入れる。
+        /// </summary>
         private void SetStatus(DataGridViewRow row, string status)
         {
             row.Cells["StatusColumn"].Value = status;
@@ -378,6 +435,9 @@ namespace FileTransfer2
 
         #region 画面の状態
 
+        /// <summary>
+        /// 未保存かどうかを記録し、タイトルに反映する。未保存でなくなったら、確認の帯も消す。
+        /// </summary>
         private void SetDirty(bool isDirty)
         {
             _isDirty = isDirty;
@@ -413,6 +473,9 @@ namespace FileTransfer2
                                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
         }
 
+        /// <summary>
+        /// アプリを閉じようとしたとき：実行中なら閉じさせない。未保存の変更があれば確認する。
+        /// </summary>
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (_isRunning)
@@ -428,6 +491,9 @@ namespace FileTransfer2
 
         #region プロファイル
 
+        /// <summary>
+        /// プロファイル名から、TSV ファイルのパスを作る。
+        /// </summary>
         private string GetProfilePath(string profileName)
         {
             return Path.Combine(_config.GetFullPath(_config.ProfilesDir), $"{profileName}.tsv");
@@ -491,6 +557,9 @@ namespace FileTransfer2
             if (e is HandledMouseEventArgs handled) handled.Handled = true;
         }
 
+        /// <summary>
+        /// 未保存の確認の帯を出す。「破棄して読み込む」で読み込むプロファイルを覚えておく。
+        /// </summary>
         private void ShowUnsavedBar(string profileToLoad)
         {
             _pendingProfile = profileToLoad;
@@ -499,12 +568,18 @@ namespace FileTransfer2
             pnlUnsaved.Visible = true;
         }
 
+        /// <summary>
+        /// 未保存の確認の帯を隠す。
+        /// </summary>
         private void HideUnsavedBar()
         {
             pnlUnsaved.Visible = false;
             _pendingProfile = null;
         }
 
+        /// <summary>
+        /// 確認の帯の「破棄して読み込む」：変更を捨てて、選ぼうとしたプロファイルを読み込む。
+        /// </summary>
         private void btnDiscardAndLoad_Click(object sender, EventArgs e)
         {
             string profileToLoad = _pendingProfile;
@@ -512,6 +587,9 @@ namespace FileTransfer2
             if (profileToLoad != null) LoadProfile(profileToLoad);
         }
 
+        /// <summary>
+        /// 確認の帯の「キャンセル」：帯を消すだけ（一覧も変更もそのまま）。
+        /// </summary>
         private void btnCancelLoad_Click(object sender, EventArgs e)
         {
             HideUnsavedBar();
@@ -554,6 +632,9 @@ namespace FileTransfer2
             SelectProfileInCombo(_currentProfile);
         }
 
+        /// <summary>
+        /// 「上書き保存」：確認してから、今開いているプロファイルに保存する。未選択なら「名前を付けて保存」と同じ。
+        /// </summary>
         private void btnSave_Click(object sender, EventArgs e)
         {
             // まだプロファイルを開いていなければ「名前を付けて保存」と同じ動きにする
@@ -569,11 +650,17 @@ namespace FileTransfer2
             if (SaveProfile(GetProfilePath(_currentProfile))) SetDirty(false);
         }
 
+        /// <summary>
+        /// 「名前を付けて保存」ボタン。
+        /// </summary>
         private void btnSaveAs_Click(object sender, EventArgs e)
         {
             SaveAs();
         }
 
+        /// <summary>
+        /// 保存ダイアログで名前を決めて保存し、コンボをそのプロファイルに合わせる。
+        /// </summary>
         private void SaveAs()
         {
             using (var dialog = new SaveFileDialog
@@ -621,6 +708,9 @@ namespace FileTransfer2
             return true;
         }
 
+        /// <summary>
+        /// 保存の失敗を、ログとメッセージボックスで知らせる。
+        /// </summary>
         private void ShowSaveError(string message)
         {
             WriteLog(message);
@@ -663,6 +753,9 @@ namespace FileTransfer2
             ShowRestorePlanResult(Messages.Format(_msg.Profile.RestorePlanSaved, Path.GetFileName(restorePath)), MessageBoxIcon.Information);
         }
 
+        /// <summary>
+        /// 「復元用を作成」の結果を、ログとメッセージボックスで知らせる。
+        /// </summary>
         private void ShowRestorePlanResult(string message, MessageBoxIcon icon)
         {
             WriteLog(message);
@@ -673,6 +766,9 @@ namespace FileTransfer2
 
         #region 実行
 
+        /// <summary>
+        /// 「すべて実行」：一覧の行を上から順に実行する。実行中は画面を操作できなくする。
+        /// </summary>
         private async void btnExecuteAll_Click(object sender, EventArgs e)
         {
             CommitGridEdit();
@@ -760,6 +856,9 @@ namespace FileTransfer2
 
         #region 自動処理（AutoRun）
 
+        /// <summary>
+        /// 自動処理のタイマーを準備する（「自動処理」にチェックが入るまでは動かさない）。
+        /// </summary>
         private void InitializeAutoRun()
         {
             _autoRunTimer = new Timer { Interval = _config.AutoRunIntervalMs };
@@ -767,6 +866,9 @@ namespace FileTransfer2
             WriteLog(_msg.AutoRun.Ready);
         }
 
+        /// <summary>
+        /// 「自動処理」のチェックに合わせて、タイマーを動かす・止める。
+        /// </summary>
         private void chkAutoRun_CheckedChanged(object sender, EventArgs e)
         {
             if (chkAutoRun.Checked)
@@ -821,6 +923,9 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// 自動処理：計画ファイル1つを読み込んで実行する。読み込めなかったとき・失敗したときは false。
+        /// </summary>
         private async Task<bool> RunPlanFileAsync(string planPath)
         {
             List<TransferTask> tasks;
@@ -887,6 +992,9 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// ほかのプログラムがファイルを開いている（まだ書き込み中の）かどうか。開けなければ書き込み中とみなす。
+        /// </summary>
         private bool IsFileLocked(string filePath)
         {
             try { using (File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.None)) { return false; } }

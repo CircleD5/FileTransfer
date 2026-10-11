@@ -14,6 +14,9 @@ namespace FileTransfer2
     /// </summary>
     public class TransferException : Exception
     {
+        /// <summary>
+        /// 「実行できない」理由の文言を持つ例外を作る。
+        /// </summary>
         public TransferException(string message) : base(message) { }
     }
 
@@ -30,6 +33,10 @@ namespace FileTransfer2
         private readonly Messages _msg;
         private readonly IFileSystem _fs; // テストでは偽物のファイルシステムに差し替える
 
+        /// <summary>
+        /// ログの出力先・設定・ファイルシステムを受け取る。
+        /// テストでは fileSystem に偽物（MockFileSystem）を渡し、本物のファイルに触れずに確かめる。
+        /// </summary>
         public FileTransferEngine(Action<string> logger, AppConfig config, IFileSystem fileSystem)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -38,6 +45,10 @@ namespace FileTransfer2
             _fs = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
         }
 
+        /// <summary>
+        /// 1行分の処理を実行する。転送元・転送先を絶対パスにし、禁止パスと転送元があるかを確かめてから、
+        /// 処理種別ごとの処理に振り分ける。失敗したら例外を投げる（TransferException の文言は、そのまま画面に出せる）。
+        /// </summary>
         public void ProcessRow(TransferAction action, string src, string dest, TransferMode mode, bool addDate, int lineNo)
         {
             string srcPath = ResolvePath(src);
@@ -316,6 +327,9 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// ファイルがあれば消す（なければ何もしない）。
+        /// </summary>
         private void DeleteFileIfExists(string path)
         {
             if (_fs.File.Exists(path)) _fs.File.Delete(path);
@@ -325,6 +339,9 @@ namespace FileTransfer2
 
         #region コピー・移動
 
+        /// <summary>
+        /// ファイル1つをコピー・移動する。転送先の書き方（フォルダか、ファイル名か）の解釈は DetermineDestFilePath で決める。
+        /// </summary>
         private void TransferFile(TransferAction action, string srcPath, string destPath, bool addDate, int lineNo)
         {
             string destFile = DetermineDestFilePath(srcPath, destPath, addDate);
@@ -339,6 +356,11 @@ namespace FileTransfer2
             CopyOrMoveFile(action, srcPath, destFile);
         }
 
+        /// <summary>
+        /// フォルダをコピー・移動する。
+        /// 「フォルダごと転送」なら転送先の中にフォルダを作り、「親フォルダを含めずに転送」なら中身だけを転送先に入れる。
+        /// 移動のときは、最後に空になった転送元のフォルダを消す。
+        /// </summary>
         private void TransferFolder(TransferAction action, string srcPath, string destPath, TransferMode mode, bool addDate, int lineNo)
         {
             string targetDir;
@@ -388,6 +410,9 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// ファイル1つをコピーまたは移動する。転送先に同じ名前があれば上書きする（移動は、先に転送先を消してから移す）。
+        /// </summary>
         private void CopyOrMoveFile(TransferAction action, string from, string to)
         {
             if (action == TransferAction.Copy)
@@ -401,6 +426,11 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// ファイルの転送先のパスを決める。
+        /// 転送先が既存のフォルダか \ で終わるなら、その中の同じ名前。それ以外は、転送先そのものをファイル名として使う。
+        /// 日付付与なら、名前に日時を付ける。
+        /// </summary>
         private string DetermineDestFilePath(string srcFile, string destPath, bool addDate)
         {
             string targetPath;
@@ -424,6 +454,9 @@ namespace FileTransfer2
 
         #region 削除
 
+        /// <summary>
+        /// フォルダを、モード（丸ごと削除・親フォルダのみ残す・ファイルのみ削除）に合わせて消す。
+        /// </summary>
         private void DeleteFolder(string folderPath, TransferMode mode)
         {
             switch (mode)
@@ -453,6 +486,9 @@ namespace FileTransfer2
             _fs.Directory.Delete(folderPath);
         }
 
+        /// <summary>
+        /// フォルダの中のファイルを、下の階層まで全部消す（フォルダは残す）。
+        /// </summary>
         private void DeleteAllFiles(string folderPath)
         {
             foreach (string file in _fs.Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories))
@@ -474,6 +510,9 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// ファイルを消す。読み取り専用なら、その属性を外してから消す。
+        /// </summary>
         private void ForceDeleteFile(string filePath)
         {
             var attrs = _fs.File.GetAttributes(filePath);
@@ -509,21 +548,34 @@ namespace FileTransfer2
             }
         }
 
+        /// <summary>
+        /// 2つのパスが同じ場所を指しているか（大文字・小文字と、末尾の \ は区別しない）。
+        /// </summary>
         private static bool IsSamePath(string a, string b)
         {
             return string.Equals(a.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// path が folder の中（下の階層）にあるか。folder 自身は含まない。
+        /// </summary>
         private static bool IsInside(string path, string folder)
         {
             return path.StartsWith(folder.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// root から見た相対パスを返す（例：root が C:\A、fullPath が C:\A\B\c.txt なら B\c.txt）。
+        /// </summary>
         private static string GetRelativePath(string root, string fullPath)
         {
             return fullPath.Substring(root.TrimEnd('\\').Length).TrimStart('\\');
         }
 
+        /// <summary>
+        /// ファイル名の後ろに日時を付けたパスを返す（例：a.txt → a_20261011153000.txt）。
+        /// 同じ名前がすでにあれば _1、_2 … と連番を付ける。
+        /// </summary>
         private string AppendDateToFileName(string filePath)
         {
             string dir = _fs.Path.GetDirectoryName(filePath) ?? "";
@@ -540,6 +592,10 @@ namespace FileTransfer2
             return newPath;
         }
 
+        /// <summary>
+        /// フォルダ名の後ろに日時を付けたパスを返す（例：Data → Data_20261011153000）。
+        /// 同じ名前がすでにあれば _1、_2 … と連番を付ける。
+        /// </summary>
         private string AppendDateToFolderName(string dirPath)
         {
             string parent = _fs.Path.GetDirectoryName(dirPath) ?? "";

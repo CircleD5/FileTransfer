@@ -10,6 +10,9 @@ namespace FileTransfer2
     /// </summary>
     public static class TaskFile
     {
+        /// <summary>
+        /// TSV ファイルを読み、1行ずつ TransferTask にする（空行は飛ばす）。
+        /// </summary>
         public static List<TransferTask> Load(string filePath)
         {
             return File.ReadAllLines(filePath, Encoding.UTF8)
@@ -18,6 +21,9 @@ namespace FileTransfer2
                        .ToList();
         }
 
+        /// <summary>
+        /// TransferTask の一覧を、TSV ファイルに書く（UTF-8）。
+        /// </summary>
         public static void Save(string filePath, IEnumerable<TransferTask> tasks)
         {
             File.WriteAllLines(filePath, tasks.Select(task => task.ToTsvLine()), Encoding.UTF8);

@@ -40,10 +40,15 @@ namespace FileTransfer2
             return action == TransferAction.Deploy || action == TransferAction.Backup || action == TransferAction.Restore;
         }
 
+        /// <summary>処理種別</summary>
         public TransferAction Action { get; set; }
+        /// <summary>転送元（入力されたままの文字。前後の " や相対パスを含むことがある）</summary>
         public string Source { get; set; } = "";
+        /// <summary>転送先（削除では使わない）</summary>
         public string Destination { get; set; } = "";
+        /// <summary>モード（選べるものは処理種別ごとに ModesFor で決まる）</summary>
         public TransferMode Mode { get; set; }
+        /// <summary>日付付与（コピー・移動だけで使う）</summary>
         public bool AddDate { get; set; }
 
         /// <summary>
@@ -68,6 +73,10 @@ namespace FileTransfer2
             return string.Join("\t", Action, Source, Destination, Mode, AddDate);
         }
 
+        /// <summary>
+        /// TSV の1行から TransferTask を作る。列が足りなければ空欄、知らない名前は Unknown として読む
+        /// （Unknown は実行するときに入力エラーになる）。
+        /// </summary>
         public static TransferTask FromTsvLine(string line)
         {
             string[] cols = line.Split('\t');

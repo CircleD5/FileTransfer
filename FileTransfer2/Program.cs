@@ -5,6 +5,7 @@ namespace FileTransfer2
 {
     internal static class Program
     {
+        /// <summary>メイン画面（予期しない例外をログに出すときに使う）</summary>
         public static Form1 MainFormInstance { get; private set; }
         private static AppConfig _config;
 
@@ -58,6 +59,9 @@ namespace FileTransfer2
             if (e.ExceptionObject is Exception ex) ShowFatalError(ex);
         }
 
+        /// <summary>
+        /// 続けられない例外を、メッセージボックスで知らせる。
+        /// </summary>
         private static void ShowFatalError(Exception ex)
         {
             // 設定の読み込み前に起きた場合に備えて、文言は直書きの予備を用意しておく
