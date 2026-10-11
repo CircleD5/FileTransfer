@@ -128,6 +128,22 @@ namespace UT
         }
 
         [Fact]
+        public void ファイル移動_転送先に同じ名前がある場合_上書きされ元ファイルは消える()
+        {
+            var mockFs = new MockFileSystem(new Dictionary<string, MockFileData>
+            {
+                { @"C:\src.txt", new MockFileData("new") },
+                { @"D:\dest.txt", new MockFileData("old") }
+            });
+
+            CreateEngine(mockFs).ProcessRow(TransferAction.Move, @"C:\src.txt", @"D:\dest.txt", TransferMode.FolderAsIs, false, 1);
+
+            Assert.Equal("new", mockFs.File.ReadAllText(@"D:\dest.txt"));
+            Assert.False(mockFs.File.Exists(@"C:\src.txt"));
+            _mockLogger.Verify(l => l(It.Is<string>(s => s.Contains("dest.txt"))), Times.Once); // 上書きしたことがログに出る
+        }
+
+        [Fact]
         public void ファイル移動_転送先が同じファイルの場合_例外になり元ファイルは残る()
         {
             var mockFs = new MockFileSystem(new Dictionary<string, MockFileData> { { @"C:\Dir\src.txt", new MockFileData("data") } });

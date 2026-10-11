@@ -116,6 +116,18 @@ namespace UT
         }
 
         [Fact]
+        public void 復元_退避先が戻す先の中にある場合_エラーになり何も変えない()
+        {
+            // 戻す先の中に退避先があると、今の状態を退避するときに退避先ごと動いてしまう
+            _fs.AddDirectory($@"{Data}\backup");
+
+            Assert.Throws<TransferException>(() =>
+                _engine.ProcessRow(TransferAction.Restore, $@"{Data}\backup", Data, TransferMode.RestoreReplace, false, 1));
+
+            Assert.Equal("リリース前", Read($@"{Data}\data.txt"));
+        }
+
+        [Fact]
         public void 復元_退避がない場合_エラーになり何も変えない()
         {
             Assert.Throws<TransferException>(() => Restore());

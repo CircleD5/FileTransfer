@@ -35,11 +35,12 @@ if errorlevel 1 (
 )
 
 rem 【2】テストを実行しながらカバレッジを計測する
-rem   -filter           : FileTransfer2 を計測し、テスト自身（UT）は計測しない
+rem   -filter           : FileTransfer2 を計測する。テスト自身（UT）と、Visual Studio が自動で作る
+rem                       Properties（Resources / Settings。このアプリでは使っていない）は計測しない
 rem   -mergebyhash      : UI テストで別に起動したアプリも、同じプログラムとして合算する
 rem   -returntargetcode : テストが失敗したら、このスクリプトも失敗として止める
 echo [2/3] テストの実行とカバレッジの計測中...（UI テストのため、アプリの画面が何度か開きます）
-"%OPENCOVER%" -register:user -target:"%XUNIT%" -targetargs:"UT\bin\Debug\UT.dll -noshadow" -filter:"+[FileTransfer2*]* -[UT*]*" -mergebyhash -returntargetcode -output:coverage.xml
+"%OPENCOVER%" -register:user -target:"%XUNIT%" -targetargs:"UT\bin\Debug\UT.dll -noshadow" -filter:"+[FileTransfer2*]* -[UT*]* -[FileTransfer2*]FileTransfer2.Properties.*" -mergebyhash -returntargetcode -output:coverage.xml
 if errorlevel 1 (
     echo テストが失敗したか、計測できませんでした。上の出力を確認してください。
     exit /b 1

@@ -66,6 +66,30 @@ namespace UT
             }
         }
 
+        [Fact]
+        public void 数値の項目がない場合_エラーになる()
+        {
+            using (var temp = new TempConfigFiles())
+            {
+                var settings = temp.ValidSettings();
+                settings.Remove("RowDelayMs");
+                temp.WriteSettings(settings);
+
+                var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
+
+                Assert.Contains("RowDelayMs", ex.Message);
+            }
+        }
+
+        [Fact]
+        public void パスの解釈_相対パスはexeのフォルダ基準で_絶対パスはそのまま()
+        {
+            var config = new AppConfig();
+
+            Assert.Equal(Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, @"Logs\a.log"), config.GetFullPath(@"Logs\a.log"));
+            Assert.Equal(@"D:\Data\a.log", config.GetFullPath(@"D:\Data\a.log"));
+        }
+
         [Theory]
         [InlineData("AutoRunIntervalMs", "abc")]
         [InlineData("AutoRunIntervalMs", "0")]   // タイマーの間隔は 1 以上
@@ -183,6 +207,19 @@ namespace UT
                 var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
 
                 Assert.Contains("Dnoe", ex.Message);
+            }
+        }
+
+        [Fact]
+        public void 文言ファイル_空の場合_エラーになる()
+        {
+            using (var temp = new TempConfigFiles())
+            {
+                File.WriteAllText(temp.MessagesPath, "");
+
+                var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
+
+                Assert.Contains("空", ex.Message);
             }
         }
 

@@ -142,6 +142,7 @@ cmbProfiles_SelectedIndexChanged
 - `RunCoverage.bat /noopen` とすると、ブラウザを開かない。
 - テストが失敗すると、メッセージを出して終了コード 1 で止まる（レポートは作らない）。
 - UI テストで起動したアプリの中で動いたコード（画面の処理）も、`-mergebyhash` で合算して計測している。
+- Visual Studio が自動で作る `Properties`（Resources / Settings。使っていない）は計測しない。
 - bat は **UTF-8（BOM なし）・CRLF** で保存する。BOM を付けたり、最初の `chcp 65001` を消したりすると、日本語の Windows で表示が文字化けする。
 - `coverage.xml` と `CoverageReport\` は git の管理外（`.gitignore`）。
 

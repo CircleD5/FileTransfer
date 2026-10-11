@@ -58,6 +58,18 @@ namespace UT
         }
 
         [Fact]
+        public void 配置_残すフォルダが新しい版にもある場合_本番のものだけになる()
+        {
+            // 新しい版にも Logs フォルダがある（deploy_keep.txt では Logs を残す指定）
+            _fs.AddFile($@"{Release}\Logs\default.log", new MockFileData("新しい版の初期ログ"));
+
+            Deploy();
+
+            Assert.Equal("過去のログ", _fs.File.ReadAllText($@"{Target}\Logs\a.log"));
+            Assert.False(_fs.File.Exists($@"{Target}\Logs\default.log")); // 新しい版の Logs は本番のもので置き換わる
+        }
+
+        [Fact]
         public void 配置_旧版はまるごと退避され_適用済みの印が付く()
         {
             Deploy();
