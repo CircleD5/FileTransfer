@@ -1,0 +1,163 @@
+{
+  "Ui": {
+    "TitleFormat": "ファイル転送ツール - [{0}] {1}",
+    "DirtyMark": "(*未保存)",
+    "ProfileUnselected": "未選択",
+    "BtnExecuteAll": "すべて実行",
+    "BtnSave": "上書き保存",
+    "BtnSaveAs": "名前を付けて保存",
+    "BtnCreateRestorePlan": "復元用を作成",
+    "RestorePlanTitle": "復元用の計画",
+    "UnsavedBar": "⚠ 未保存の変更があります。「{0}」を読み込むと、変更は失われます。",
+    "BtnDiscardAndLoad": "破棄して読み込む",
+    "BtnCancelLoad": "キャンセル",
+    "ChkAutoRun": "自動処理",
+    "SaveDialogTitle": "名前を付けて保存",
+    "SaveDialogFilter": "TSVファイル (*.tsv)|*.tsv",
+    "FolderDialogDesc": "フォルダを選択してください。",
+    "RunningCannotClose": "処理の実行中は終了できません。終わるまでお待ちください。",
+    "RunningTitle": "実行中"
+  },
+
+  "Column": {
+    "Action": "処理種別",
+    "Source": "転送元",
+    "Dest": "転送先",
+    "Browse": "参照",
+    "Mode": "モード",
+    "Date": "日付付与",
+    "Status": "ステータス",
+    "Up": "上",
+    "Down": "下",
+    "Exec": "個別実行",
+    "Delete": "削除"
+  },
+
+  "Actions": {
+    "Copy": "コピー",
+    "Move": "移動",
+    "Delete": "削除",
+    "Deploy": "配置",
+    "Backup": "退避",
+    "Restore": "復元"
+  },
+
+  "Modes": {
+    "FolderAsIs": "フォルダごと転送",
+    "ExtractContents": "親フォルダを含めずに転送",
+    "DeleteAll": "丸ごと削除",
+    "DeleteKeepParent": "親フォルダのみ残す",
+    "DeleteFilesOnly": "ファイルのみ削除",
+    "DeployReplace": "退避して入れ替え",
+    "BackupCopy": "まるごとコピーして退避",
+    "RestoreReplace": "退避から戻す"
+  },
+
+  "SourceHints": {
+    "Copy": "コピーするファイルまたはフォルダ",
+    "Move": "移動するファイルまたはフォルダ",
+    "Delete": "削除するファイルまたはフォルダ",
+    "Deploy": "新しい版のフォルダ（例：Release\\v1.2.0\\App。親フォルダ名がリリース番号になります）",
+    "Backup": "退避するフォルダ（例：D:\\BizAppData）",
+    "Restore": "退避先のフォルダ（退避の転送先。配置を取り消すときは BackupDir\\リリース番号）"
+  },
+
+  "DestHints": {
+    "Copy": "コピー先（既存のフォルダか \\ で終わるならその中へ。それ以外はそのファイル名で保存）",
+    "Move": "移動先（既存のフォルダか \\ で終わるならその中へ。それ以外はそのファイル名で保存）",
+    "Delete": "削除では使いません",
+    "Deploy": "本番のフォルダ（例：D:\\App）。今の中身を退避してから、新しい版で入れ替えます",
+    "Backup": "退避先のフォルダ（例：D:\\ReleaseBackup\\v1.2.0）",
+    "Restore": "戻す先のフォルダ（例：D:\\BizAppData）"
+  },
+
+  "Status": {
+    "Wait": "待機中",
+    "Proc": "処理中...",
+    "Done": "完了",
+    "Err": "エラー",
+    "Unexec": "未実行"
+  },
+
+  "Profile": {
+    "UnsavedWarn": "変更が保存されていません。変更を破棄してよろしいですか？",
+    "UnsavedTitle": "未保存の確認",
+    "Loaded": "プロファイル [{0}] を読み込みました。",
+    "Cleared": "一覧をクリアしました。",
+    "LoadFailed": "プロファイルを読み込めませんでした: {0}",
+    "OverwriteConfirm": "プロファイル '{0}' を上書き保存しますか？",
+    "OverwriteTitle": "上書き保存の確認",
+    "SaveSuccess": "プロファイルを保存しました: {0}",
+    "SaveError": "保存に失敗しました: {0}",
+    "SaveErrorTitle": "エラー",
+    "RestorePlanSuffix": "_復元",
+    "RestorePlanSaved": "復元用の計画を保存しました: {0}",
+    "RestorePlanNotCreated": "退避・配置以外の行や入力エラーがあるため、復元用の計画は作れません。（退避と配置だけのプロファイルから作れます）",
+    "RestorePlanNeedSave": "先にプロファイルを保存してから作成してください。（保存した内容から作ります）",
+    "RestorePlanMayBeStale": "復元用の計画（{0}）は、保存する前の内容から作られています。必要なら「復元用を作成」で作り直してください。",
+    "RestorePlanSaveError": "復元用の計画を保存できませんでした: {0}",
+    "DefaultNotFound": "起動時に読み込むプロファイル「{0}」が見つかりません。settings.config の DefaultProfile を確認してください。"
+  },
+
+  "AutoRun": {
+    "Ready": "システム: 自動処理の準備が完了しました。(監視はOFFです)",
+    "Start": "システム: {0} フォルダの監視を開始しました。({1}ミリ秒間隔)",
+    "Stop": "システム: 自動処理の監視を停止しました。",
+    "SkipLock": "自動実行: {0} は書き込み中のためスキップします。",
+    "Detect": "自動実行: {0} を検出しました。実行を開始します。",
+    "Done": "自動実行: {0} を Done フォルダへ移動しました。",
+    "Failed": "自動実行: 失敗したため、{0} を Error フォルダへ移動しました。",
+    "Stopped": "自動実行: {0} を Done・Error フォルダへ移動できなかったため、自動処理を停止しました。Plan フォルダを確認してください。",
+    "Error": "自動実行エラー: {0}"
+  },
+
+  "Run": {
+    "RunStart": "=== 実行を開始します ===",
+    "RunEnd": "=== 実行が終わりました ===",
+    "RowStart": "[{0}行目] {1}を開始します: {2}",
+    "RowStartToDest": "[{0}行目] {1}を開始します: {2} → {3}",
+    "RowSuccess": "[{0}行目] 正常完了",
+    "RowFailed": "[{0}行目] 失敗: {1}",
+    "RowAbort": "失敗したため、後続の処理を中断しました。",
+    "InputError": "[{0}行目] 入力エラー: {1}",
+    "Executor": "実行者: {0}（PC: {1}）",
+    "LogsDeleted": "保存期間（{0}日）を過ぎたログを {1} 件削除しました。",
+    "LogsDeleteFailed": "保存期間を過ぎたログを削除できませんでした: {0}"
+  },
+
+  "Input": {
+    "ActionInvalid": "処理種別を選択してください。",
+    "SourceEmpty": "転送元を入力してください。",
+    "DestEmpty": "転送先を入力してください。",
+    "ModeInvalid": "モードの選択が正しくありません。",
+    "DateNotAllowed": "配置・退避・復元では日付付与は使えません。"
+  },
+
+  "Transfer": {
+    "Overwrite": "[{0}行目] [上書き] 既存ファイルを上書きします: {1}",
+    "FolderDate": "[{0}行目] フォルダ名に日付を付与しました: {1}",
+    "PathEmpty": "パスが入力されていません。",
+    "SourceNotFound": "転送元が存在しません: {0}",
+    "SamePath": "転送元と転送先が同じファイルです。",
+    "Conflict": "転送元・転送先・退避先のフォルダが重なっています（同じ場所か、一方がもう一方の中にあります）。",
+    "ForbiddenPath": "実行が禁止されているパスです: {0}",
+    "SourceMustBeFolder": "配置・退避・復元の転送元にはフォルダを指定してください。",
+    "DeployNoReleaseId": "配置の転送元は「リリース番号のフォルダ\\配置するフォルダ」の形で指定してください。（例：Release\\v1.2.0\\App）",
+    "DeployAlreadyDone": "[{0}行目] リリース {1} は {2} に適用済みのため、何もしません。",
+    "DeployBackedUp": "[{0}行目] 配置先を退避しました: {1}",
+    "DeployKept": "[{0}行目] 残すものを退避から戻しました: {1}",
+    "BackupSaved": "[{0}行目] 退避しました: {1}",
+    "BackupExists": "[{0}行目] 退避済みのため、何もしません: {1}",
+    "RestoreNoBackup": "戻す元の退避が見つかりません: {0}",
+    "RestoreRolledBack": "[{0}行目] 戻す前の状態を退避しました: {1}",
+    "RestoreDone": "[{0}行目] 退避から戻しました: {1}",
+    "RestoreAlreadyDone": "[{0}行目] 復元済みのため、何もしません: {1}"
+  },
+
+  "Error": {
+    "GlobalAlert": "[システムエラー] 予期せぬエラーが発生しました。アプリはこのまま使用できます。",
+    "GlobalDetail": "詳細: {0}",
+    "Fatal": "致命的なエラーが発生したため、アプリを終了します。\n{0}",
+    "FatalTitle": "システムエラー"
+  }
+}

@@ -1,0 +1,4 @@
+# Visual Studio の既定どおり作業コピーは CRLF。リポジトリ内は正規化して保存する
+* text=auto eol=crlf
+*.png binary
+*.ico binary

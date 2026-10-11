@@ -1,0 +1,11 @@
+# Visual Studio / ビルド成果物（REVIEW.md D-03 の案）
+.vs/
+bin/
+obj/
+packages/
+*.user
+*.suo
+TestResults/
+# カバレッジ（RunCoverage.bat で作り直せる）
+CoverageReport/
+coverage.xml
