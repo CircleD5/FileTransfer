@@ -28,6 +28,7 @@ namespace FileTransfer2
         public InputMessages Input { get; set; }
         public TransferMessages Transfer { get; set; }
         public ErrorMessages Error { get; set; }
+        public ConfigMessages Config { get; set; } // 設定ファイルの誤りを知らせる文言
 
         /// <summary>
         /// 文言の {0} {1} に値を埋め込む。
@@ -180,5 +181,20 @@ namespace FileTransfer2
         public string GlobalDetail { get; set; }
         public string Fatal { get; set; }
         public string FatalTitle { get; set; }
+    }
+
+    /// <summary>
+    /// 設定ファイルの誤りを知らせる文言。
+    /// ※messages.json 自体が読めないときは、この文言も使えないので、.NET や Newtonsoft.Json のエラー文をそのまま出す。
+    /// </summary>
+    [JsonObject(ItemRequired = Required.Always)]
+    public class ConfigMessages
+    {
+        public string Title { get; set; }
+        public string FileNotFound { get; set; }
+        public string SettingsInvalid { get; set; }
+        public string SectionMissing { get; set; }
+        public string MessagesMissingKeys { get; set; }
+        public string FolderCreateFailed { get; set; }
     }
 }

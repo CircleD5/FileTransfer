@@ -7,11 +7,15 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using log4net;
 
 namespace FileTransfer2
 {
     public partial class Form1 : Form
     {
+        /// <summary>ログファイルへの書き込み（log4net）</summary>
+        private static readonly ILog Logger = LogManager.GetLogger(typeof(Form1));
+
         private readonly AppConfig _config;
         private readonly Messages _msg;   // 画面やログに出す文言（_config.Msg の短縮）
         private readonly FileTransferEngine _engine;
@@ -135,10 +139,14 @@ namespace FileTransfer2
         {
             WriteLog(_msg.Error.GlobalAlert);
             WriteLog(Messages.Format(_msg.Error.GlobalDetail, ex.Message));
+            // 原因を調べられるよう、ログファイルには例外の詳細（どこで起きたか）も残す
+            Logger.Error(_msg.Error.GlobalAlert, ex);
         }
 
         /// <summary>
-        /// 画面のログ欄と、日付ごとのログファイルの両方に書く。別スレッドから呼ばれても大丈夫。
+        /// 画面のログ欄と、日付ごとのログファイル（log4net）の両方に書く。別スレッドから呼ばれても大丈夫。
+        /// ログファイルの出力先や書式は settings.config の &lt;log4net&gt; で決まる。
+        /// ログファイルに書けなくても log4net は例外を出さないので、本来の処理は止まらない。
         /// </summary>
         private void WriteLog(string message)
         {
@@ -147,18 +155,8 @@ namespace FileTransfer2
                 txtLog.Invoke(new Action(() => WriteLog(message)));
                 return;
             }
-            string line = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            txtLog.AppendText(line + "\r\n");
-
-            try
-            {
-                string logPath = Path.Combine(_config.GetFullPath(_config.LogDir), $"{DateTime.Now:yyyyMMdd}.log");
-                File.AppendAllText(logPath, line + "\r\n", Encoding.UTF8);
-            }
-            catch
-            {
-                // ログファイルに書けなくても、本来の処理は止めない（画面のログには出ている）
-            }
+            txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\r\n");
+            Logger.Info(message);
         }
 
         /// <summary>

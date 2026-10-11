@@ -411,12 +411,27 @@ Backup	D:\BizAppData	D:\ReleaseBackup\v1.2.0	BackupCopy	False
 
 | ファイル | 内容 |
 |---|---|
-| `settings.config` | 動作設定（下の表） |
-| `messages.json` | 画面やログの文言。項目が欠けていると起動しない |
+| `settings.config` | 動作設定（下の表）と、ログの設定。.NET 標準の設定ファイル（XML）の形式 |
+| `messages.json` | 画面やログの文言。項目が欠けていると起動しない。**`settings.config` と同じフォルダに置く** |
 | `forbidden_paths.txt` | 実行を禁止するパス（1行に1つ。完全一致） |
 | `deploy_keep.txt` | 配置のときに本番に残すもの（1行に1つ。配置先から見た相対パス） |
 
-`settings.config` の項目：
+`settings.config` の書き方（`<fileTransfer>` の中に `項目名="値"` で書く）：
+
+```xml
+<fileTransfer
+  AutoRunIntervalMs="30000"
+  BackupDir="C:\FileTransfer2Data\Backup"
+  DefaultProfile=""
+  ... />
+```
+
+- パスはそのまま書けます（`\` を重ねる必要はありません）。ただし `&` は `&amp;` と書きます。
+- 項目名は大文字・小文字を区別します。知らない項目名（書き間違い）があるとエラーになります。
+- 誤りがあると、ファイル名と**行番号**つきで表示されます。誤りは**1つずつ**表示されるので、直したらもう一度起動してください。
+- `<configSections>` と `<log4net>` の部分は、通常は変更しません（`<log4net>` はログの書式などの設定です）。
+
+`<fileTransfer>` の項目：
 
 | 項目 | 内容 |
 |---|---|
@@ -424,10 +439,10 @@ Backup	D:\BizAppData	D:\ReleaseBackup\v1.2.0	BackupCopy	False
 | `RowDelayMs` | 行と行の間の待ち時間（ミリ秒、0以上） |
 | `AutoRunPlanDir` / `AutoRunDoneDir` / `AutoRunErrorDir` | 自動処理の計画ファイルを置く場所／成功したら移す先／失敗したら移す先 |
 | `ProfilesDir` | プロファイルの保存先 |
-| `DefaultProfile` | 起動時に読み込むプロファイル名。**空でもよいが、行は必須** |
+| `DefaultProfile` | 起動時に読み込むプロファイル名。**空（`""`）でもよいが、項目は必須** |
 | `LogDir` | ログの出力先 |
 | `LogRetentionDays` | 日付ごとのログを残す日数（0 なら消さない） |
-| `MessagesFile` / `ForbiddenPathsFile` / `DeployKeepFile` | 各ファイルの場所 |
+| `ForbiddenPathsFile` / `DeployKeepFile` | 各ファイルの場所 |
 | `BackupDir` | 配置の退避先 |
 
 - 相対パスは、アプリ（exe）のフォルダ基準です。
@@ -441,10 +456,12 @@ Backup	D:\BizAppData	D:\ReleaseBackup\v1.2.0	BackupCopy	False
 
 | ファイル | 内容 | 消えるか |
 |---|---|---|
-| `LogDir\yyyyMMdd.log` | 画面のログと同じ内容（日付ごと） | `LogRetentionDays` を過ぎたら起動時に削除 |
+| `LogDir\yyyyMMdd.log` | 画面のログと同じ内容（日付ごと）。予期しないエラーは、原因の詳細（どこで起きたか）も残る | `LogRetentionDays` を過ぎたら起動時に削除 |
 | `LogDir\deploy_history.log` | 配置の記録（日時・リリース番号・転送元・配置先・実行者） | 消えない |
 
 実行を始めるたびに、「実行者：ユーザー名（PC：PC名）」が記録されます。
+
+日付ごとのログは log4net で書いています。書式（日時・レベル）は `settings.config` の `<log4net>` で変えられます。
 
 ---
 

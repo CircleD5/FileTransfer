@@ -440,3 +440,21 @@
 - 追加：最後に集計（Summary.txt）を画面に出す。`/noopen` を付けるとブラウザを開かない
 - 確認：文字コード 932 で始め、別のフォルダから実行して成功（117件成功・日本語も正常）。テストを1件わざと失敗させて、終了コード 1 で止まることも確認（確認後に元へ戻した）
 - 追加（同日）：Visual Studio が自動で作る `Properties.Resources` / `Settings`（このアプリでは使っていない）を計測の対象から外した。行 90.3% → 91.7%、メソッド 95.8% → 97.3%
+
+### 設定ファイルを .NET 標準の形式に、ログを log4net に変更（2026-10-11）
+- 理由：案件の決まりで、独自実装はテストが必要。標準やライブラリで済む部分は、それに任せる
+- `settings.config` を「キー=値」の独自形式から、.NET 標準の設定ファイル（XML、`System.Configuration`）に変更
+  - 項目は `SettingsSection` に属性で宣言し、抜け・空・数値の範囲・知らない項目（書き間違い）のチェックは .NET に任せる。自前の読み込み（`ReadKeyValueFile`）とチェック（`GetString` / `GetInt` / `GetOptionalString`）は削除
+  - 誤りは最初の1つだけが、ファイル名と行番号つきで表示される（以前はまとめて表示していた）
+  - ファイル名と、起動時の引数で設定ファイルを切り替える仕組みはそのまま（`OpenMappedExeConfiguration`）
+  - 一覧ファイル（`forbidden_paths.txt` / `deploy_keep.txt`）は、1行に1つのテキストのまま
+  - 使っていなかった `Properties\Settings.settings` を削除
+- 設定エラーの文言を `messages.json` の `Config` に移した（外部化）
+  - そのために `messages.json` を先に読む。場所は `settings.config` と同じフォルダに固定し、`MessagesFile` の項目はなくした
+  - `messages.json` 自体が読めないときは、.NET や Newtonsoft.Json のエラー文をそのまま出す（コードの直書きの文言はなくした）
+- 日付ごとのログを log4net（3.5.0）に変更。設定は `settings.config` の `<log4net>`、出力先は `LogDir`
+  - ファイル名（`yyyyMMdd.log`）は変えていないので、古いログの削除（`LogFiles.DeleteOld`）とテストはそのまま使える
+  - 予期しないエラーは、例外の詳細もログファイルに残すようにした
+  - `deploy_history.log` は配置の記録（データ）なので、log4net を使わず今のまま（`IFileSystem` で書き、ユニットテストできる）
+- テスト：`AppConfigTests` を、宣言が効いているかの確認を中心に整理（なし・空・範囲外・数字でない・書き間違い・`<fileTransfer>` がない）。全128件成功
+- カバレッジ：行 91.9% → 90.6%、分岐 77.3% → 77.9%、メソッド 97.3%（よく通る AppConfig の行が減ったため、行の割合が下がった）

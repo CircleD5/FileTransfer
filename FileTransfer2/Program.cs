@@ -1,5 +1,8 @@
 ﻿using System;
+using System.IO;
 using System.Windows.Forms;
+using log4net;
+using log4net.Config;
 
 namespace FileTransfer2
 {
@@ -8,6 +11,8 @@ namespace FileTransfer2
         /// <summary>メイン画面（予期しない例外をログに出すときに使う）</summary>
         public static Form1 MainFormInstance { get; private set; }
         private static AppConfig _config;
+        /// <summary>ログファイルへの書き込み（log4net）</summary>
+        private static readonly ILog Logger = LogManager.GetLogger(typeof(Program));
 
         /// <summary>
         /// アプリケーションのメイン エントリ ポイントです。
@@ -35,9 +40,14 @@ namespace FileTransfer2
             catch (ConfigException ex)
             {
                 // 設定が正しくないまま動かすと危険なので、起動しない
-                MessageBox.Show(ex.Message, "設定エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(ex.Message, ConfigErrorTitle(), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+
+            // log4net の設定は settings.config の <log4net> から読む。
+            // 出力先のフォルダは LogDir の値を使う（<log4net> の中の %property{LogDir} に入る）
+            GlobalContext.Properties["LogDir"] = _config.GetFullPath(_config.LogDir);
+            XmlConfigurator.Configure(new FileInfo(_config.SettingsFullPath));
 
             MainFormInstance = new Form1(_config);
             Application.Run(MainFormInstance);
@@ -63,10 +73,23 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 続けられない例外を、メッセージボックスで知らせる。
+        /// 設定エラーのメッセージボックスの題名。
+        /// 文言（messages.json）が読めなかったときは、それも使えないので、アプリの名前にする。
+        /// </summary>
+        private static string ConfigErrorTitle()
+        {
+            if (_config.Msg != null) return _config.Msg.Config.Title;
+            return Application.ProductName;
+        }
+
+        /// <summary>
+        /// 続けられない例外を、ログファイルに残し、メッセージボックスで知らせる。
         /// </summary>
         private static void ShowFatalError(Exception ex)
         {
+            // log4net を設定する前に起きた場合は、何も書かれない（エラーにもならない）
+            Logger.Fatal(ex.Message, ex);
+
             string message;
             string title;
             if (_config != null && _config.Msg != null)
@@ -76,9 +99,9 @@ namespace FileTransfer2
             }
             else
             {
-                // 文言（messages.json）を読み込む前に起きた場合に備えて、直書きの予備を使う
-                message = $"致命的なエラーが発生したため、アプリを終了します。\n{ex.Message}";
-                title = "システムエラー";
+                // 文言（messages.json）を読み込む前に起きた場合は、文言が使えないので、エラー文とアプリの名前だけを出す
+                message = ex.Message;
+                title = Application.ProductName;
             }
             MessageBox.Show(message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }

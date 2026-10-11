@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
+using System.Xml.Linq;
 using FlaUI.Core.Tools;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using FileTransfer2;
 
@@ -20,6 +21,8 @@ namespace UT
         public string SettingsPath => Path.Combine(Dir, "settings.config");
         /// <summary>messages.json のパス（本物をコピーしたもの）</summary>
         public string MessagesPath => Path.Combine(Dir, "messages.json");
+        /// <summary>messages.json の文言（エラー文の期待値を作るときに使う）</summary>
+        public Messages Msg => JsonConvert.DeserializeObject<Messages>(File.ReadAllText(MessagesPath));
         /// <summary>forbidden_paths.txt のパス</summary>
         public string ForbiddenPath => Path.Combine(Dir, "forbidden_paths.txt");
         /// <summary>deploy_keep.txt のパス</summary>
@@ -56,7 +59,6 @@ namespace UT
                 { "DefaultProfile", "" },
                 { "LogDir", Path.Combine(Dir, "Logs") },
                 { "LogRetentionDays", "30" },
-                { "MessagesFile", MessagesPath },
                 { "ForbiddenPathsFile", ForbiddenPath },
                 { "BackupDir", Path.Combine(Dir, "Backup") },
                 { "DeployKeepFile", DeployKeepPath },
@@ -65,10 +67,19 @@ namespace UT
 
         /// <summary>
         /// settings.config を書き直す（ValidSettings で作った内容を書き換えてから渡す）。
+        /// 本物の settings.config（アプリと一緒に出力先へコピーされたもの）をもとに、&lt;fileTransfer&gt; の項目だけを置き換える。
+        /// log4net の設定などは本物のまま使う。
         /// </summary>
         public void WriteSettings(Dictionary<string, string> settings)
         {
-            File.WriteAllLines(SettingsPath, settings.Select(pair => $"{pair.Key}={pair.Value}"));
+            XDocument doc = XDocument.Load(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.config"));
+            XElement section = doc.Root.Element(SettingsSection.Name);
+            section.RemoveAttributes();
+            foreach (var pair in settings)
+            {
+                section.SetAttributeValue(pair.Key, pair.Value);
+            }
+            doc.Save(SettingsPath);
         }
 
         /// <summary>

@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Text;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace FileTransfer2
 {
@@ -20,8 +22,8 @@ namespace FileTransfer2
 
     /// <summary>
     /// 設定ファイルを読み込んで保持するクラス。
-    /// ・settings.config     … 動作設定（キー=値）
-    /// ・messages.json       … 画面やログに出す文言（JSON。中身は Messages クラスを参照）
+    /// ・messages.json       … 画面やログに出す文言（JSON。中身は Messages クラスを参照）。settings.config と同じフォルダに置く
+    /// ・settings.config     … 動作設定（XML。.NET 標準の設定ファイル。中身は SettingsSection クラスを参照）と、log4net の設定
     /// ・forbidden_paths.txt … 実行を禁止するパスの一覧（1行に1つ）
     /// ・deploy_keep.txt     … 配置のときに本番に残すものの一覧（1行に1つ）
     /// プログラム側に既定値は持たない。ファイルや項目が欠けていたら ConfigException を投げる。
@@ -29,6 +31,10 @@ namespace FileTransfer2
     public class AppConfig
     {
         public const string DefaultSettingsFile = "settings.config";
+        public const string MessagesFileName = "messages.json";
+
+        /// <summary>読み込んだ settings.config の絶対パス（log4net の設定もこのファイルから読む）</summary>
+        public string SettingsFullPath { get; private set; }
 
         /// <summary>自動処理で Plan フォルダを確認する間隔（ミリ秒）</summary>
         public int AutoRunIntervalMs { get; private set; }
@@ -46,8 +52,6 @@ namespace FileTransfer2
         public string LogDir { get; private set; }
         /// <summary>日付ごとのログを残す日数（0 なら消さない）</summary>
         public int LogRetentionDays { get; private set; }
-        /// <summary>文言ファイル（messages.json）の場所</summary>
-        public string MessagesFile { get; private set; }
         /// <summary>実行を禁止するパスの一覧ファイルの場所</summary>
         public string ForbiddenPathsFile { get; private set; }
         /// <summary>配置のときに本番フォルダを退避する先（この下にリリース番号のフォルダができる）</summary>
@@ -68,33 +72,17 @@ namespace FileTransfer2
         private readonly List<string> _forbiddenPaths = new List<string>();
         private readonly List<string> _deployKeepPaths = new List<string>();
 
-        // ※ここのエラー文言だけは messages.json に置けない（messages.json 自体が読めない場合があるため）
-
+        /// <summary>
+        /// 設定ファイル一式を読み込む。
+        /// 文言（messages.json）を最初に読む。設定ファイルの誤りを知らせる文言も messages.json に書いてあるため。
+        /// </summary>
         /// <param name="settingsPath">動作設定ファイル。テスト用の設定に切り替えるときに別のファイルを渡す。</param>
         public void Load(string settingsPath = DefaultSettingsFile)
         {
-            string settingsFullPath = GetFullPath(settingsPath);
-            var settings = ReadKeyValueFile(settingsFullPath);
-            var errors = new List<string>();
+            SettingsFullPath = GetFullPath(settingsPath);
+            Msg = LoadMessages(Path.Combine(Path.GetDirectoryName(SettingsFullPath), MessagesFileName));
 
-            AutoRunIntervalMs = GetInt(settings, "AutoRunIntervalMs", 1, errors); // タイマーの間隔は 0 にできない
-            RowDelayMs = GetInt(settings, "RowDelayMs", 0, errors);
-            AutoRunPlanDir = GetString(settings, "AutoRunPlanDir", errors);
-            AutoRunDoneDir = GetString(settings, "AutoRunDoneDir", errors);
-            AutoRunErrorDir = GetString(settings, "AutoRunErrorDir", errors);
-            ProfilesDir = GetString(settings, "ProfilesDir", errors);
-            LogDir = GetString(settings, "LogDir", errors);
-            LogRetentionDays = GetInt(settings, "LogRetentionDays", 0, errors);
-            MessagesFile = GetString(settings, "MessagesFile", errors);
-            ForbiddenPathsFile = GetString(settings, "ForbiddenPathsFile", errors);
-            BackupDir = GetString(settings, "BackupDir", errors);
-            DeployKeepFile = GetString(settings, "DeployKeepFile", errors);
-            DefaultProfile = GetOptionalString(settings, "DefaultProfile", errors);
-
-            if (errors.Count > 0)
-                throw new ConfigException($"設定ファイルに誤りがあります。\n{settingsFullPath}\n\n{string.Join("\n", errors)}");
-
-            Msg = LoadMessages(GetFullPath(MessagesFile));
+            LoadSettings(SettingsFullPath);
             _forbiddenPaths.AddRange(ReadSettingLines(GetFullPath(ForbiddenPathsFile)));
             // 先頭の \ は付けても付けなくても同じ意味にする（「\Logs」も「Logs」も配置先の直下の Logs）
             _deployKeepPaths.AddRange(ReadSettingLines(GetFullPath(DeployKeepFile)).Select(path => path.Trim('\\')));
@@ -115,31 +103,28 @@ namespace FileTransfer2
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
                 {
-                    throw new ConfigException($"フォルダを作成できません。\n{fullPath}\n\n{ex.Message}\n\nsettings.config のフォルダの設定と、書き込み権限を確認してください。");
+                    throw new ConfigException(Messages.Format(Msg.Config.FolderCreateFailed, fullPath, ex.Message));
                 }
             }
         }
 
         /// <summary>
-        /// messages.json を読み込む。項目の抜け・知らないキー（書き間違い）・JSON の書式誤りは ConfigException。
+        /// messages.json を読み込む。ファイルがない・JSON の書式誤り・項目の抜け・知らないキー（書き間違い）は ConfigException。
         /// </summary>
         private static Messages LoadMessages(string path)
         {
-            if (!File.Exists(path))
-                throw new ConfigException($"設定ファイルが見つかりません。\n{path}");
-
             Messages messages;
             try
             {
-                var jsonSettings = new JsonSerializerSettings { MissingMemberHandling = MissingMemberHandling.Error };
-                messages = JsonConvert.DeserializeObject<Messages>(File.ReadAllText(path, Encoding.UTF8), jsonSettings);
+                var serializer = JsonSerializer.Create(new JsonSerializerSettings { MissingMemberHandling = MissingMemberHandling.Error });
+                // JObject.Parse を通すのは、空のファイルもエラーにするため（DeserializeObject だと、空のときは null が返るだけ）
+                messages = JObject.Parse(File.ReadAllText(path, Encoding.UTF8)).ToObject<Messages>(serializer);
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
             {
-                throw new ConfigException($"文言ファイルに誤りがあります。\n{path}\n\n{ex.Message}");
+                // 文言そのものが読めないので、.NET や Newtonsoft.Json のエラー文をそのまま出す
+                throw new ConfigException(path + "\n\n" + ex.Message);
             }
-            if (messages == null)
-                throw new ConfigException($"文言ファイルが空です。\n{path}");
 
             // 処理種別・モードごとの文言は、enum の値（Unknown 以外）がすべてそろっているかを確認する
             var missing = MissingKeys("Actions", messages.Actions)
@@ -148,7 +133,7 @@ namespace FileTransfer2
                 .Concat(MissingKeys("DestHints", messages.DestHints))
                 .ToList();
             if (missing.Count > 0)
-                throw new ConfigException($"文言ファイルに足りない項目があります。\n{path}\n\n{string.Join("\n", missing.Select(key => "・" + key))}");
+                throw new ConfigException(Messages.Format(messages.Config.MessagesMissingKeys, path, string.Join("\n", missing.Select(key => "・" + key))));
 
             return messages;
         }
@@ -164,6 +149,47 @@ namespace FileTransfer2
         }
 
         /// <summary>
+        /// settings.config の &lt;fileTransfer&gt; を、.NET 標準の仕組み（System.Configuration）で読み、各プロパティに入れる。
+        /// 項目の抜けや値の誤りは .NET がチェックする（チェックの内容は SettingsSection クラスに宣言してある）。
+        /// </summary>
+        private void LoadSettings(string path)
+        {
+            // OpenMappedExeConfiguration は、ファイルがなくてもエラーにならず空の設定を返すので、先に確かめる
+            if (!File.Exists(path))
+                throw new ConfigException(Messages.Format(Msg.Config.FileNotFound, path));
+
+            try
+            {
+                // exe の名前で決まる App.config（FileTransfer2.exe.config）ではなく、指定したファイルを読む
+                var fileMap = new ExeConfigurationFileMap { ExeConfigFilename = path };
+                Configuration configuration = ConfigurationManager.OpenMappedExeConfiguration(fileMap, ConfigurationUserLevel.None);
+                var settings = configuration.GetSection(SettingsSection.Name) as SettingsSection;
+
+                // <fileTransfer> がない、または <configSections> での宣言が抜けている
+                if (settings == null)
+                    throw new ConfigException(Messages.Format(Msg.Config.SectionMissing, path, SettingsSection.Name));
+
+                // 値の誤り（範囲外など）は、値を取り出したときに分かることがあるので、取り出しも try の中で行う
+                AutoRunIntervalMs = settings.AutoRunIntervalMs;
+                RowDelayMs = settings.RowDelayMs;
+                AutoRunPlanDir = settings.AutoRunPlanDir;
+                AutoRunDoneDir = settings.AutoRunDoneDir;
+                AutoRunErrorDir = settings.AutoRunErrorDir;
+                ProfilesDir = settings.ProfilesDir;
+                LogDir = settings.LogDir;
+                LogRetentionDays = settings.LogRetentionDays;
+                ForbiddenPathsFile = settings.ForbiddenPathsFile;
+                BackupDir = settings.BackupDir;
+                DeployKeepFile = settings.DeployKeepFile;
+                DefaultProfile = settings.DefaultProfile;
+            }
+            catch (ConfigurationErrorsException ex)
+            {
+                throw new ConfigException(Messages.Format(Msg.Config.SettingsInvalid, path, ex.Message));
+            }
+        }
+
+        /// <summary>
         /// 相対パスをアプリ（exe）のフォルダ基準の絶対パスにする。
         /// </summary>
         public string GetFullPath(string relativeOrAbsolutePath)
@@ -173,60 +199,12 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 必須の文字列の項目を読む。ない・空なら、エラーの一覧に足して null を返す。
-        /// （エラーは最後にまとめて表示するので、ここでは例外にしない）
+        /// 一覧ファイル（1行に1つ）を読み、空行と「#」で始まるコメント行を除いた行を返す。ファイルがなければ ConfigException。
         /// </summary>
-        private static string GetString(Dictionary<string, string> settings, string key, List<string> errors)
-        {
-            if (settings.TryGetValue(key, out string value) && value.Length > 0) return value;
-            errors.Add($"・{key} が書かれていません。");
-            return null;
-        }
-
-        /// <summary>
-        /// 値は空でもよい項目を読む。ただし項目そのもの（「キー=」の行）は必須（書き忘れと「使わない」を区別するため）。
-        /// </summary>
-        private static string GetOptionalString(Dictionary<string, string> settings, string key, List<string> errors)
-        {
-            if (settings.TryGetValue(key, out string value)) return value;
-            errors.Add($"・{key} が書かれていません。（使わない場合は「{key}=」と値を空にして書いてください）");
-            return "";
-        }
-
-        /// <summary>
-        /// 必須の整数の項目を読む。ない・数字でない・min より小さいなら、エラーの一覧に足して 0 を返す。
-        /// </summary>
-        private static int GetInt(Dictionary<string, string> settings, string key, int min, List<string> errors)
-        {
-            string value = GetString(settings, key, errors);
-            if (value == null) return 0;
-            if (int.TryParse(value, out int number) && number >= min) return number;
-            errors.Add($"・{key} は {min} 以上の整数で指定してください。（現在の値：{value}）");
-            return 0;
-        }
-
-        /// <summary>
-        /// 「キー=値」形式のファイルを読む。同じキーが複数あれば後のものを使う。
-        /// </summary>
-        private static Dictionary<string, string> ReadKeyValueFile(string path)
-        {
-            var result = new Dictionary<string, string>();
-            foreach (string line in ReadSettingLines(path))
-            {
-                int eqIdx = line.IndexOf('=');
-                if (eqIdx > 0)
-                    result[line.Substring(0, eqIdx).Trim()] = line.Substring(eqIdx + 1).Trim();
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// 空行と「#」で始まるコメント行を除いた行を返す。ファイルがなければ ConfigException。
-        /// </summary>
-        private static List<string> ReadSettingLines(string path)
+        private List<string> ReadSettingLines(string path)
         {
             if (!File.Exists(path))
-                throw new ConfigException($"設定ファイルが見つかりません。\n{path}");
+                throw new ConfigException(Messages.Format(Msg.Config.FileNotFound, path));
 
             var lines = new List<string>();
             foreach (string line in File.ReadAllLines(path, Encoding.UTF8))

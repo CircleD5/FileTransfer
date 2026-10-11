@@ -41,6 +41,7 @@ combo.DisplayStyle = enabled
 FileTransfer2\                 アプリ本体（.NET Framework 4.8 / WinForms）
   Program.cs                   起動。設定の読み込みと、作業フォルダの作成
   AppConfig.cs                 設定ファイルの読み込み（ConfigException）
+  SettingsSection.cs           settings.config の項目の宣言（.NET 標準の設定セクション）
   Messages.cs                  文言（messages.json）の型
   Form1.cs / Form1.Designer.cs 画面
   FileTransferEngine.cs        1行分のファイル操作（コピー・移動・削除・配置・退避・復元）
@@ -85,9 +86,11 @@ Program ──読み込む──▶ AppConfig ──持つ──▶ Messages（�
 
 ```
 Program.Main
-  ├ AppConfig.Load        settings.config → messages.json → forbidden_paths.txt → deploy_keep.txt
+  ├ AppConfig.Load        messages.json → settings.config → forbidden_paths.txt → deploy_keep.txt
+  │   （文言を先に読むのは、設定ファイルの誤りを知らせる文言も messages.json にあるため）
   ├ AppConfig.CreateFolders
   │   （どこかで失敗したら ConfigException →「設定エラー」を表示して終了）
+  ├ log4net の設定      settings.config の <log4net> を読む。出力先は LogDir
   └ Form1
       ├ 列・文言の設定
       ├ 自動処理の準備、古いログの削除
@@ -123,10 +126,18 @@ cmbProfiles_SelectedIndexChanged
 ## 5. 文言と設定のルール
 
 - **画面やログの文言はすべて `messages.json`** に置き、`_msg.グループ.名前` で参照する（打ち間違いはビルドエラーになる）。
-  - 例外：`AppConfig` の設定エラーの文言だけはコードに直接書く（`messages.json` 自体が読めない場合があるため）。
+  - 設定エラーの文言も `messages.json` の `Config` に置く。
+  - 例外：`messages.json` 自体が読めないときは、文言が使えないので、.NET や Newtonsoft.Json のエラー文をそのまま出す（コードに日本語の文言は書かない）。
 - `{0}` などの埋め込みは `Messages.Format` を使う（番号を間違えても落ちない）。
 - `messages.json` は、項目の抜け・知らないキー・書式の誤りがあると起動しない。処理種別やモードごとの文言（`Actions`、`Modes`、`SourceHints`、`DestHints`）は、enum の値がすべてそろっているかも確認する。
-- `settings.config` の項目は、すべて必須。値を空にしてよい項目（`DefaultProfile`）も、行そのものは必須（書き忘れと「使わない」を区別するため）。
+- `settings.config` は .NET 標準の設定ファイル（`System.Configuration`）で読む。項目は `SettingsSection` に属性で宣言し、**チェックは .NET に任せる**（自前のチェック処理は書かない）。
+  - すべて必須（`IsRequired = true`）。値を空にしてよい項目（`DefaultProfile`）も、項目そのものは必須（書き忘れと「使わない」を区別するため）。
+  - 誤りは最初の1つだけが報告される（.NET の仕様）。
+  - `IntegerValidator` などのチェックは既定値にもかかるため、チェックを付けた項目には、チェックを通る形だけの `DefaultValue` を書く（必須なので実際には使われない）。
+  - 値の誤りは、プロパティを読んだときに例外になることがある。そのため `AppConfig.LoadSettings` では、値の取り出しまでを try の中で行う。
+- ログファイルは log4net で書く。書式や出力のしかたは `settings.config` の `<log4net>`、出力先のフォルダは `LogDir`（`%property{LogDir}` で渡す）。
+  - `deploy_history.log` は log4net を使わない。配置の記録（データ）なので、`FileTransferEngine` が `IFileSystem` で書く（ユニットテストで偽物のファイルシステムに差し替えられるように）。
+  - 古いログの削除（`LogFiles.DeleteOld`）は自前。log4net の日付ごとのファイルは、日数での自動削除ができないため。
 
 ## 6. 機能を足すとき
 
@@ -142,9 +153,10 @@ cmbProfiles_SelectedIndexChanged
 
 ### 設定項目を1つ足す場合
 
-1. `AppConfig` にプロパティを足し、`Load` で `GetString` / `GetInt` / `GetOptionalString` を使って読む
-2. `FileTransfer2\settings.config` に、説明のコメントと一緒に足す
-3. `UT\Helpers\TempConfigFiles.cs` の `ValidSettings` に足す（足さないとテストが設定エラーになる）
+1. `SettingsSection` にプロパティを足す（`[ConfigurationProperty(..., IsRequired = true)]` と、必要ならチェックの属性）
+2. `AppConfig` にプロパティを足し、`LoadSettings` で `SettingsSection` から写す
+3. `FileTransfer2\settings.config` の `<fileTransfer>` に足し、下のコメントに説明を書く
+4. `UT\Helpers\TempConfigFiles.cs` の `ValidSettings` に足す（足さないとテストが設定エラーになる）
 
 ## 7. ビルドとテスト
 

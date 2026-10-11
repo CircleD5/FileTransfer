@@ -26,58 +26,90 @@ namespace UT
             }
         }
 
+        // settings.config のチェック（抜け・値の誤り・書き間違い）は .NET 標準の仕組みに任せている。
+        // ここでは、SettingsSection の宣言が効いているかを、代表的な項目で確かめる。
+
         [Fact]
         public void 設定ファイルがない場合_エラーになる()
         {
-            var ex = Assert.Throws<ConfigException>(() => new AppConfig().Load(@"C:\not_exist\settings.config"));
-            Assert.Contains(@"C:\not_exist\settings.config", ex.Message);
+            using (var temp = new TempConfigFiles())
+            {
+                File.Delete(temp.SettingsPath);
+
+                var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
+
+                Assert.Equal(Messages.Format(temp.Msg.Config.FileNotFound, temp.SettingsPath), ex.Message);
+            }
         }
 
         [Fact]
-        public void 項目が足りない場合_足りない項目がすべてエラーに書かれる()
+        public void fileTransferの設定がない場合_エラーになる()
+        {
+            using (var temp = new TempConfigFiles())
+            {
+                File.WriteAllText(temp.SettingsPath, "<configuration />");
+
+                var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
+
+                Assert.Equal(Messages.Format(temp.Msg.Config.SectionMissing, temp.SettingsPath, SettingsSection.Name), ex.Message);
+            }
+        }
+
+        [Theory]
+        [InlineData("ProfilesDir")]    // 文字列の項目
+        [InlineData("RowDelayMs")]     // 数値の項目
+        [InlineData("DefaultProfile")] // 値は空でよい項目も、項目そのものは必須
+        public void 項目がない場合_項目名入りのエラーになる(string key)
         {
             using (var temp = new TempConfigFiles())
             {
                 var settings = temp.ValidSettings();
-                settings.Remove("ProfilesDir");
+                settings.Remove(key);
+                temp.WriteSettings(settings);
+
+                var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
+
+                Assert.Contains(key, ex.Message);
+                Assert.Contains(temp.SettingsPath, ex.Message);
+            }
+        }
+
+        [Fact]
+        public void 必須の文字列が空の場合_エラーになる()
+        {
+            using (var temp = new TempConfigFiles())
+            {
+                var settings = temp.ValidSettings();
                 settings["LogDir"] = "";
                 temp.WriteSettings(settings);
 
                 var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
 
-                Assert.Contains("ProfilesDir", ex.Message);
                 Assert.Contains("LogDir", ex.Message);
             }
         }
 
         [Fact]
-        public void 値が空でよい項目_空なら空として読まれ_行がなければエラーになる()
+        public void 値が空でよい項目_空なら空として読まれる()
         {
             using (var temp = new TempConfigFiles())
             {
                 Assert.Equal("", temp.LoadConfig().DefaultProfile);
-
-                var settings = temp.ValidSettings();
-                settings.Remove("DefaultProfile");
-                temp.WriteSettings(settings);
-
-                var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
-                Assert.Contains("DefaultProfile=", ex.Message);
             }
         }
 
         [Fact]
-        public void 数値の項目がない場合_エラーになる()
+        public void 知らない項目がある場合_書き間違いとしてエラーになる()
         {
             using (var temp = new TempConfigFiles())
             {
                 var settings = temp.ValidSettings();
-                settings.Remove("RowDelayMs");
+                settings["BackupDirr"] = Path.Combine(temp.Dir, "Backup");
                 temp.WriteSettings(settings);
 
                 var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
 
-                Assert.Contains("RowDelayMs", ex.Message);
+                Assert.Contains("BackupDirr", ex.Message);
             }
         }
 
@@ -181,6 +213,7 @@ namespace UT
         [InlineData("Actions", "Move")]         // 処理種別の表示名が足りない
         [InlineData("Modes", "DeleteFilesOnly")] // モードの表示名が足りない
         [InlineData("DestHints", "Restore")]     // セルの説明が足りない
+        [InlineData("Config", "SettingsInvalid")] // 設定エラーの文言が足りない
         public void 文言ファイル_項目が足りない場合_エラーになる(string group, string item)
         {
             using (var temp = new TempConfigFiles())
@@ -222,7 +255,7 @@ namespace UT
 
                 var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
 
-                Assert.Contains("空", ex.Message);
+                Assert.Contains(temp.MessagesPath, ex.Message);
             }
         }
 

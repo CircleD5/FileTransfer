@@ -159,5 +159,13 @@
     "GlobalDetail": "詳細: {0}",
     "Fatal": "致命的なエラーが発生したため、アプリを終了します。\n{0}",
     "FatalTitle": "システムエラー"
+  },
+  "Config": {
+    "Title": "設定エラー",
+    "FileNotFound": "設定ファイルが見つかりません。\n{0}",
+    "SettingsInvalid": "設定ファイルに誤りがあります。\n{0}\n\n{1}\n\n※誤りは1つずつ表示されます。直したら、もう一度起動してください。",
+    "SectionMissing": "設定ファイルに <{1}> の設定がありません。\n{0}",
+    "MessagesMissingKeys": "文言ファイルに足りない項目があります。\n{0}\n\n{1}",
+    "FolderCreateFailed": "フォルダを作成できません。\n{0}\n\n{1}\n\nsettings.config のフォルダの設定と、書き込み権限を確認してください。"
   }
 }
