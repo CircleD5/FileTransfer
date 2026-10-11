@@ -80,16 +80,28 @@ namespace FileTransfer2
         public static TransferTask FromTsvLine(string line)
         {
             string[] cols = line.Split('\t');
-            string Col(int index) => index < cols.Length ? cols[index] : "";
 
-            return new TransferTask
-            {
-                Action = ParseEnum(Col(0), TransferAction.Unknown),
-                Source = Col(1),
-                Destination = Col(2),
-                Mode = ParseEnum(Col(3), TransferMode.Unknown),
-                AddDate = bool.TryParse(Col(4), out bool addDate) && addDate,
-            };
+            var task = new TransferTask();
+            task.Action = ParseEnum(GetColumn(cols, 0), TransferAction.Unknown);
+            task.Source = GetColumn(cols, 1);
+            task.Destination = GetColumn(cols, 2);
+            task.Mode = ParseEnum(GetColumn(cols, 3), TransferMode.Unknown);
+
+            // 日付付与は "True" のときだけ付ける（"False"・空欄・読めない値なら付けない）
+            bool addDate;
+            if (bool.TryParse(GetColumn(cols, 4), out addDate)) task.AddDate = addDate;
+            else task.AddDate = false;
+
+            return task;
+        }
+
+        /// <summary>
+        /// TSV の1行から、index 番目（0 から数える）の列を取り出す。列が足りない行なら空欄として扱う。
+        /// </summary>
+        private static string GetColumn(string[] cols, int index)
+        {
+            if (index < cols.Length) return cols[index];
+            return "";
         }
 
         /// <summary>
@@ -97,7 +109,8 @@ namespace FileTransfer2
         /// </summary>
         private static T ParseEnum<T>(string text, T unknown) where T : struct
         {
-            return Enum.IsDefined(typeof(T), text) ? (T)Enum.Parse(typeof(T), text) : unknown;
+            if (Enum.IsDefined(typeof(T), text)) return (T)Enum.Parse(typeof(T), text);
+            return unknown;
         }
     }
 }

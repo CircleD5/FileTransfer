@@ -44,9 +44,8 @@ namespace UT
             Assert.Contains(Messages.Format(_app.Msg.Run.RowStartToDest, 1, _app.Msg.Actions[TransferAction.Copy], src, WorkPath(@"out\")), _app.Log);
             // 誰がどの PC で実行したかが、画面とログファイルの両方に残る
             string executor = Messages.Format(_app.Msg.Run.Executor, Environment.UserName, Environment.MachineName);
-            Assert.Contains(executor, _app.Log);
-            string logFile = Path.Combine(_app.Config.LogDir, $"{DateTime.Now:yyyyMMdd}.log");
-            Assert.Contains(executor, File.ReadAllText(logFile));
+            Assert.Contains(executor, _app.ScreenLog); // 画面のログ欄
+            Assert.Contains(executor, _app.Log);       // ログファイル
         }
 
         [Fact]

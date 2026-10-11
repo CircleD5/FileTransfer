@@ -18,7 +18,8 @@ namespace UT
     /// <summary>
     /// UI テストからアプリを操作するためのクラス。画面の操作はすべてここに集め、テスト側には書かない。
     ///
-    /// ・キーボードやマウスは使わず、UI Automation で値の設定やボタンの実行をする（テスト中も PC を使える）
+    /// ・キーボードやマウスは使わず、UI Automation で値の設定やボタンの実行をする
+    ///   （テスト中もほかの作業はできる。ただし、テストが開くアプリの画面に触ると、テストの操作と食い違って失敗することがある）
     /// ・設定ファイル・プロファイル・自動処理・ログのフォルダは一時フォルダに作る（本番のフォルダを汚さない）
     /// ・列は見出しの文言で探し、文言は messages.json から取る（列の追加や文言の変更でテストが壊れない）
     /// ・待ち合わせは「条件がそろうまで待つ」で行い、決め打ちの Sleep はしない
@@ -36,6 +37,7 @@ namespace UT
 
         /// <summary>アプリが使っている設定（フォルダの場所や文言）</summary>
         public AppConfig Config { get; }
+        /// <summary>アプリが使っている文言（列名やステータスなど、テストで比べる文字に使う）</summary>
         public Messages Msg => Config.Msg;
         /// <summary>テストで使うファイルを置くフォルダ（終了時に消える）</summary>
         public string WorkDir { get; }
@@ -46,7 +48,7 @@ namespace UT
             _files = new TempConfigFiles();
             var settings = _files.ValidSettings();
             settings["AutoRunIntervalMs"] = "500"; // 自動処理のテストを早く終わらせる
-            setup?.Invoke(_files, settings);
+            if (setup != null) setup(_files, settings);
             _files.WriteSettings(settings);
             Config = _files.LoadConfig();
             WorkDir = Path.Combine(_files.Dir, "Work");
@@ -59,8 +61,20 @@ namespace UT
 
         #region 画面全体
 
+        /// <summary>画面のタイトル（開いているプロファイル名と未保存の印が出る）</summary>
         public string Title => _window.Title;
-        public string Log => GetById("txtLog").Patterns.Value.Pattern.Value.Value;
+        /// <summary>
+        /// ログの全文。画面のログ欄と同じ内容が、日付ごとのログファイルにすべて書かれているので、そこから読む。
+        /// （画面のログ欄は UI Automation では約4,000文字で切れて読めなくなるため。ScreenLog を参照）
+        /// </summary>
+        public string Log => ReadLogFiles();
+
+        /// <summary>
+        /// 画面のログ欄の文字。UI Automation の制限で、約4,000文字を超えると途中までしか読めない。
+        /// 画面に出ていることを確かめたいときだけ使い、ふだんは Log（ログファイルから読む）を使う。
+        /// </summary>
+        public string ScreenLog => GetById("txtLog").Patterns.Value.Pattern.Value.Value;
+        /// <summary>「すべて実行」が押せるか（実行中は押せない）</summary>
         public bool IsExecuteAllEnabled => GetById("btnExecuteAll").IsEnabled;
 
         /// <summary>
@@ -97,8 +111,8 @@ namespace UT
             // FlaUI の ComboBox.Select() では選べないため、「開く → 項目を選ぶ → 閉じる」を自分で行う。
             var combo = GetById("cmbProfiles");
             combo.Patterns.ExpandCollapse.Pattern.Expand();
-            var item = Retry.WhileNull(() => combo.FindFirstDescendant(cf => cf.ByControlType(ControlType.ListItem).And(cf.ByName(name))), Timeout).Result
-                       ?? throw new InvalidOperationException($"プロファイル「{name}」が一覧にありません。");
+            var item = Retry.WhileNull(() => combo.FindFirstDescendant(cf => cf.ByControlType(ControlType.ListItem).And(cf.ByName(name))), Timeout).Result;
+            if (item == null) throw new InvalidOperationException($"プロファイル「{name}」が一覧にありません。");
             item.Patterns.SelectionItem.Pattern.Select();
             combo.Patterns.ExpandCollapse.Pattern.Collapse();
 
@@ -127,6 +141,9 @@ namespace UT
             WaitUntil(() => !IsUnsavedBarVisible, "確認の帯が消えませんでした。");
         }
 
+        /// <summary>
+        /// 「自動処理」のチェックを入れる（on が true）・外す。
+        /// </summary>
         public void SetAutoRun(bool on)
         {
             var check = GetById("chkAutoRun");
@@ -181,7 +198,8 @@ namespace UT
         {
             Window dialog = WaitForDialog();
             // 「はい」（6）と「いいえ」（7）は Windows 標準メッセージボックスの決まった ID
-            Invoke(dialog.FindFirstDescendant(cf => cf.ByAutomationId(yes ? "6" : "7")));
+            string buttonId = yes ? "6" : "7";
+            Invoke(dialog.FindFirstDescendant(cf => cf.ByAutomationId(buttonId)));
             WaitUntil(() => _window.ModalWindows.Length == 0, "ダイアログが閉じませんでした。");
         }
 
@@ -192,7 +210,7 @@ namespace UT
         /// <summary>
         /// 一覧の行数（一番下の新規入力用の行は数えない）。
         /// </summary>
-        public int RowCount => GetGrid().FindAllChildren().Length - 2; // 見出しの行と新規入力用の行を除く
+        public int RowCount => GetGridRows().Length - 2; // 見出しの行と新規入力用の行を除く
 
         /// <summary>
         /// 1行分を入力する。row は 0 から数える。新規入力用の行に入力すると、その下に次の新規入力用の行ができる。
@@ -212,8 +230,8 @@ namespace UT
         {
             // セルを編集状態にしてから、表示された入力欄に値を入れる（人が入力したときと同じ流れになる）
             GetCell(row, column).Patterns.LegacyIAccessible.Pattern.DoDefaultAction();
-            var editor = Retry.WhileNull(() => GetCell(row, column).FindFirstChild(cf => cf.ByControlType(ControlType.Edit)), Timeout).Result
-                         ?? throw new InvalidOperationException($"{row}行目の「{column}」が編集できません。");
+            var editor = Retry.WhileNull(() => GetCell(row, column).FindFirstChild(cf => cf.ByControlType(ControlType.Edit)), Timeout).Result;
+            if (editor == null) throw new InvalidOperationException($"{row}行目の「{column}」が編集できません。");
             editor.Patterns.Value.Pattern.SetValue(text);
             EndEdit(row);
         }
@@ -264,12 +282,18 @@ namespace UT
         /// <param name="automationId">この ID の要素から下だけを書き出す。省略すると画面全体。</param>
         public string DumpTree(string automationId = null)
         {
-            var root = automationId == null ? _window : GetById(automationId);
+            // ID を省略したときは、画面全体を書き出す
+            AutomationElement root;
+            if (automationId == null) root = _window;
+            else root = GetById(automationId);
             var sb = new StringBuilder();
             DumpElement(root, 0, sb);
             return sb.ToString();
         }
 
+        /// <summary>
+        /// 要素1つを1行に書き出し、子の要素も字下げして書き出す（DumpTree から呼ぶ）。
+        /// </summary>
         private static void DumpElement(AutomationElement element, int depth, StringBuilder sb)
         {
             // 種類や名前を持たない要素もあるので、取れない値は空として書き出す（調査用なので途中で止めない）
@@ -301,10 +325,14 @@ namespace UT
             if (!ok) throw new TimeoutException(failMessage);
         }
 
+        /// <summary>
+        /// AutomationId（WinForms ではコントロールの Name）で要素を探す。見つかるまで少し待ち、見つからなければ例外。
+        /// </summary>
         private AutomationElement GetById(string automationId)
         {
-            return Retry.WhileNull(() => _window.FindFirstDescendant(cf => cf.ByAutomationId(automationId)), Timeout).Result
-                   ?? throw new InvalidOperationException($"画面に「{automationId}」が見つかりません。");
+            var element = Retry.WhileNull(() => _window.FindFirstDescendant(cf => cf.ByAutomationId(automationId)), Timeout).Result;
+            if (element == null) throw new InvalidOperationException($"画面に「{automationId}」が見つかりません。");
+            return element;
         }
 
         /// <summary>
@@ -315,19 +343,37 @@ namespace UT
         private AutomationElement GetGrid() => GetById("dgvTasks");
 
         /// <summary>
+        /// 一覧の行を「見出しの行, 1行目, 2行目, …, 新規入力用の行」の順で返す。
+        /// 行が多くて画面に入りきらないと、スクロールバーも一覧の子要素として先頭に入ってくるので、それを除く。
+        /// （画面の外の行も要素としては全部あるので、スクロールしなくても読み書きできる）
+        /// </summary>
+        private AutomationElement[] GetGridRows()
+        {
+            // 一覧の行は ControlType を持たない（そのまま読むと例外になる）ので、取れないときは既定値として扱う
+            return GetGrid().FindAllChildren()
+                            .Where(child => child.Properties.ControlType.ValueOrDefault != ControlType.ScrollBar)
+                            .ToArray();
+        }
+
+        /// <summary>
         /// セルを探す。グリッドの子要素は「見出しの行, 1行目, 2行目, …」の順に並び、
         /// 各行の子要素は「行見出し, 1列目, 2列目, …」の順に並んでいる。
         /// </summary>
         private AutomationElement GetCell(int row, string column)
         {
-            return Retry.WhileNull(() =>
+            var cell = Retry.WhileNull(() =>
             {
-                var rows = GetGrid().FindAllChildren();
-                if (rows.Length <= row + 1) return null;
+                var rows = GetGridRows();
+                if (rows.Length <= row + 1) return null; // その行がまだない
+
                 int col = Array.FindIndex(rows[0].FindAllChildren(), header => header.Name == column);
                 var cells = rows[row + 1].FindAllChildren();
-                return col >= 0 && col < cells.Length ? cells[col] : null;
-            }, Timeout).Result ?? throw new InvalidOperationException($"{row}行目の「{column}」セルが見つかりません。");
+                if (col < 0 || col >= cells.Length) return null; // その列が見つからない
+
+                return cells[col];
+            }, Timeout).Result;
+            if (cell == null) throw new InvalidOperationException($"{row}行目の「{column}」セルが見つかりません。");
+            return cell;
         }
 
         /// <summary>
@@ -404,16 +450,43 @@ namespace UT
             public static extern IntPtr GetParent(IntPtr hWnd);
         }
 
+        /// <summary>
+        /// メッセージボックスなどのダイアログが出るまで待ち、それを返す。
+        /// </summary>
         private Window WaitForDialog()
         {
-            return Retry.WhileNull(() => _window.ModalWindows.FirstOrDefault(), Timeout, ignoreException: true).Result
-                   ?? throw new TimeoutException("ダイアログが表示されませんでした。");
+            var dialog = Retry.WhileNull(() => _window.ModalWindows.FirstOrDefault(), Timeout, ignoreException: true).Result;
+            if (dialog == null) throw new TimeoutException("ダイアログが表示されませんでした。");
+            return dialog;
         }
 
         private int CountInLog(string text) => Regex.Matches(Log, Regex.Escape(text)).Count;
 
+        /// <summary>
+        /// 日付ごとのログファイル（yyyyMMdd.log）を古い順に読んでつなげる（テストが日付をまたいでも全部読めるように）。
+        /// アプリが書き込んでいる最中でも読めるよう、ほかのプログラムとの共有を許可して開く。
+        /// </summary>
+        private string ReadLogFiles()
+        {
+            if (!Directory.Exists(Config.LogDir)) return "";
+
+            var sb = new StringBuilder();
+            foreach (string file in Directory.GetFiles(Config.LogDir, "????????.log").OrderBy(name => name))
+            {
+                using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                {
+                    sb.Append(reader.ReadToEnd());
+                }
+            }
+            return sb.ToString();
+        }
+
         #endregion
 
+        /// <summary>
+        /// テストの後始末：アプリを強制終了し、一時フォルダを消す。
+        /// </summary>
         public void Dispose()
         {
             // 未保存の確認などで終了が止まらないよう、テストの後始末では強制終了する

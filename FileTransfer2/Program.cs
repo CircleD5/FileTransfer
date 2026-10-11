@@ -26,7 +26,10 @@ namespace FileTransfer2
             _config = new AppConfig();
             try
             {
-                _config.Load(args.Length > 0 ? args[0] : AppConfig.DefaultSettingsFile);
+                // 起動時の引数で設定ファイルを渡されたら、それを使う（テスト用の設定など）。なければ settings.config
+                string settingsPath = AppConfig.DefaultSettingsFile;
+                if (args.Length > 0) settingsPath = args[0];
+                _config.Load(settingsPath);
                 _config.CreateFolders();
             }
             catch (ConfigException ex)
@@ -64,9 +67,19 @@ namespace FileTransfer2
         /// </summary>
         private static void ShowFatalError(Exception ex)
         {
-            // 設定の読み込み前に起きた場合に備えて、文言は直書きの予備を用意しておく
-            string message = _config?.Msg != null ? Messages.Format(_config.Msg.Error.Fatal, ex.Message) : $"致命的なエラーが発生したため、アプリを終了します。\n{ex.Message}";
-            string title = _config?.Msg != null ? _config.Msg.Error.FatalTitle : "システムエラー";
+            string message;
+            string title;
+            if (_config != null && _config.Msg != null)
+            {
+                message = Messages.Format(_config.Msg.Error.Fatal, ex.Message);
+                title = _config.Msg.Error.FatalTitle;
+            }
+            else
+            {
+                // 文言（messages.json）を読み込む前に起きた場合に備えて、直書きの予備を使う
+                message = $"致命的なエラーが発生したため、アプリを終了します。\n{ex.Message}";
+                title = "システムエラー";
+            }
             MessageBox.Show(message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }

@@ -193,7 +193,10 @@ namespace UT
 
                 var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
 
-                Assert.Contains(item ?? group, ex.Message);
+                // 項目を消したときは項目名が、グループごと消したときはグループ名が、エラーに書かれる
+                string expected = group;
+                if (item != null) expected = item;
+                Assert.Contains(expected, ex.Message);
             }
         }
 

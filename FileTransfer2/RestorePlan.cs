@@ -52,7 +52,9 @@ namespace FileTransfer2
         public static string PathFor(string planPath, Messages msg)
         {
             string name = Path.GetFileNameWithoutExtension(planPath) + msg.Profile.RestorePlanSuffix + Path.GetExtension(planPath);
-            return Path.Combine(Path.GetDirectoryName(planPath) ?? "", name);
+            string folder = Path.GetDirectoryName(planPath);
+            if (folder == null) folder = ""; // ドライブ直下などで親フォルダがないとき
+            return Path.Combine(folder, name);
         }
 
         /// <summary>

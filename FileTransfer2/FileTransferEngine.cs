@@ -39,10 +39,15 @@ namespace FileTransfer2
         /// </summary>
         public FileTransferEngine(Action<string> logger, AppConfig config, IFileSystem fileSystem)
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _config = config ?? throw new ArgumentNullException(nameof(config));
+            // どれも必須。渡し忘れ（null）は、使う前にここで分かりやすいエラーにする
+            if (logger == null) throw new ArgumentNullException(nameof(logger));
+            if (config == null) throw new ArgumentNullException(nameof(config));
+            if (fileSystem == null) throw new ArgumentNullException(nameof(fileSystem));
+
+            _logger = logger;
+            _config = config;
             _msg = config.Msg;
-            _fs = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
+            _fs = fileSystem;
         }
 
         /// <summary>
@@ -245,7 +250,9 @@ namespace FileTransfer2
         /// </summary>
         public static string ReleaseIdOf(string sourceFullPath)
         {
-            return Path.GetFileName(Path.GetDirectoryName(sourceFullPath.TrimEnd('\\')) ?? "");
+            string parent = Path.GetDirectoryName(sourceFullPath.TrimEnd('\\'));
+            if (parent == null) return ""; // ドライブ直下（C:\ など）には親フォルダがない
+            return Path.GetFileName(parent);
         }
 
         /// <summary>
@@ -447,7 +454,8 @@ namespace FileTransfer2
                 if (!string.IsNullOrEmpty(parentDir)) _fs.Directory.CreateDirectory(parentDir);
                 targetPath = destPath;
             }
-            return addDate ? AppendDateToFileName(targetPath) : targetPath;
+            if (addDate) return AppendDateToFileName(targetPath);
+            return targetPath;
         }
 
         #endregion
@@ -530,7 +538,8 @@ namespace FileTransfer2
         /// </summary>
         private string ResolvePath(string path)
         {
-            string trimmed = (path ?? "").Trim().Trim('"');
+            if (path == null) path = "";
+            string trimmed = path.Trim().Trim('"');
             if (trimmed.Length == 0)
                 throw new TransferException(_msg.Transfer.PathEmpty);
             return _fs.Path.GetFullPath(_config.GetFullPath(trimmed));
@@ -578,7 +587,8 @@ namespace FileTransfer2
         /// </summary>
         private string AppendDateToFileName(string filePath)
         {
-            string dir = _fs.Path.GetDirectoryName(filePath) ?? "";
+            string dir = _fs.Path.GetDirectoryName(filePath);
+            if (dir == null) dir = ""; // ドライブ直下などで親フォルダがないとき
             string name = _fs.Path.GetFileNameWithoutExtension(filePath);
             string ext = _fs.Path.GetExtension(filePath);
             string dateStr = DateTime.Now.ToString("yyyyMMddHHmmss");
@@ -598,7 +608,8 @@ namespace FileTransfer2
         /// </summary>
         private string AppendDateToFolderName(string dirPath)
         {
-            string parent = _fs.Path.GetDirectoryName(dirPath) ?? "";
+            string parent = _fs.Path.GetDirectoryName(dirPath);
+            if (parent == null) parent = ""; // ドライブ直下などで親フォルダがないとき
             string name = _fs.Path.GetFileName(dirPath);
             string dateStr = DateTime.Now.ToString("yyyyMMddHHmmss");
             string newPath = _fs.Path.Combine(parent, $"{name}_{dateStr}");

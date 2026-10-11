@@ -269,8 +269,17 @@ namespace FileTransfer2
             SetCellEnabled(modeCell, modeNames.Count > 1, null); // 選択肢が1つしかなければ選ぶ必要がない
 
             // 処理種別によって転送元・転送先の意味が変わる（例：退避の転送先は「退避先」）ので、説明を出す
-            row.Cells["SourceColumn"].ToolTipText = _msg.SourceHints.TryGetValue(action, out string sourceHint) ? sourceHint : "";
-            row.Cells["DestColumn"].ToolTipText = _msg.DestHints.TryGetValue(action, out string destHint) ? destHint : "";
+            // （処理種別が Unknown のときは説明がないので、空にする）
+            if (_msg.SourceHints.ContainsKey(action))
+            {
+                row.Cells["SourceColumn"].ToolTipText = _msg.SourceHints[action];
+                row.Cells["DestColumn"].ToolTipText = _msg.DestHints[action];
+            }
+            else
+            {
+                row.Cells["SourceColumn"].ToolTipText = "";
+                row.Cells["DestColumn"].ToolTipText = "";
+            }
         }
 
         /// <summary>
@@ -285,7 +294,11 @@ namespace FileTransfer2
             // プルダウンは、背景色を変えても▼付きのボタンとして描かれ、選べるように見えてしまう。
             // 入力できないときは▼を消して、普通の文字として表示する
             if (cell is DataGridViewComboBoxCell combo)
-                combo.DisplayStyle = enabled ? DataGridViewComboBoxDisplayStyle.DropDownButton : DataGridViewComboBoxDisplayStyle.Nothing;
+            {
+                combo.DisplayStyle = enabled
+                    ? DataGridViewComboBoxDisplayStyle.DropDownButton
+                    : DataGridViewComboBoxDisplayStyle.Nothing;
+            }
         }
 
         // 一覧にない値（TSV の不正な値など）は空欄で表示し、実行時に入力エラーとして止める
@@ -313,7 +326,8 @@ namespace FileTransfer2
             else if (colName == "UpColumn" || colName == "DownColumn")
             {
                 dgvTasks.EndEdit();
-                MoveRow(e.RowIndex, colName == "UpColumn" ? -1 : 1);
+                if (colName == "UpColumn") MoveRow(e.RowIndex, -1); // ▲：1つ上へ
+                else MoveRow(e.RowIndex, 1);                         // ▼：1つ下へ
                 SetDirty(true);
             }
             else if (colName == "ExecColumn")
@@ -333,8 +347,13 @@ namespace FileTransfer2
 
             using (var dialog = new FolderBrowserDialog { Description = _msg.Ui.FolderDialogDesc })
             {
-                string current = (row.Cells[targetColumn].Value?.ToString() ?? "").Trim('"');
-                if (Directory.Exists(current)) dialog.SelectedPath = current;
+                // 今セルに入っているフォルダがあれば、選ぶ画面をそこから開く（空のセルなら何もしない）
+                object value = row.Cells[targetColumn].Value;
+                if (value != null)
+                {
+                    string current = value.ToString().Trim('"');
+                    if (Directory.Exists(current)) dialog.SelectedPath = current;
+                }
 
                 if (dialog.ShowDialog() != DialogResult.OK) return;
 
@@ -378,14 +397,32 @@ namespace FileTransfer2
         /// </summary>
         private TransferTask ReadTask(DataGridViewRow row)
         {
-            return new TransferTask
-            {
-                Action = row.Cells["ActionColumn"].Value is TransferAction a ? a : TransferAction.Unknown,
-                Source = row.Cells["SourceColumn"].Value?.ToString() ?? "",
-                Destination = row.Cells["DestColumn"].Value?.ToString() ?? "",
-                Mode = row.Cells["ModeColumn"].Value is TransferMode m ? m : TransferMode.Unknown,
-                AddDate = Convert.ToBoolean(row.Cells["DateColumn"].Value ?? false),
-            };
+            var task = new TransferTask();
+
+            // 一覧にない値（TSV の不正な値など）は Unknown として扱う（実行すると入力エラーになる）
+            object action = row.Cells["ActionColumn"].Value;
+            if (action is TransferAction) task.Action = (TransferAction)action;
+            else task.Action = TransferAction.Unknown;
+
+            object mode = row.Cells["ModeColumn"].Value;
+            if (mode is TransferMode) task.Mode = (TransferMode)mode;
+            else task.Mode = TransferMode.Unknown;
+
+            // 空のセル（値が null）は "" として扱う
+            object source = row.Cells["SourceColumn"].Value;
+            if (source != null) task.Source = source.ToString();
+            else task.Source = "";
+
+            object dest = row.Cells["DestColumn"].Value;
+            if (dest != null) task.Destination = dest.ToString();
+            else task.Destination = "";
+
+            // 日付付与のセルが空なら「付けない」
+            object addDate = row.Cells["DateColumn"].Value;
+            if (addDate != null) task.AddDate = Convert.ToBoolean(addDate);
+            else task.AddDate = false;
+
+            return task;
         }
 
         /// <summary>
@@ -539,7 +576,10 @@ namespace FileTransfer2
         {
             if (_isSelectingByCode) return;
 
-            string selected = cmbProfiles.SelectedIndex > 0 ? cmbProfiles.SelectedItem.ToString() : "";
+            // 一覧の先頭は「未選択」。未選択は "" として扱う
+            string selected = "";
+            if (cmbProfiles.SelectedIndex > 0) selected = cmbProfiles.SelectedItem.ToString();
+
             if (_isDirty)
             {
                 SelectProfileInCombo(_currentProfile);
@@ -619,10 +659,19 @@ namespace FileTransfer2
         {
             try
             {
-                LoadRows(profileName == "" ? new List<TransferTask>() : TaskFile.Load(GetProfilePath(profileName)));
+                if (profileName == "")
+                {
+                    // 「未選択」は一覧を空にする（新しく作り始めるとき用）
+                    LoadRows(new List<TransferTask>());
+                    WriteLog(_msg.Profile.Cleared);
+                }
+                else
+                {
+                    LoadRows(TaskFile.Load(GetProfilePath(profileName)));
+                    WriteLog(Messages.Format(_msg.Profile.Loaded, profileName));
+                }
                 _currentProfile = profileName;
                 SetDirty(false);
-                WriteLog(profileName == "" ? _msg.Profile.Cleared : Messages.Format(_msg.Profile.Loaded, profileName));
             }
             catch (Exception ex)
             {
@@ -676,7 +725,8 @@ namespace FileTransfer2
 
                 // Profiles フォルダの外に保存した場合は、コンボには出ないので「未選択」扱いになる
                 string savedName = Path.GetFileNameWithoutExtension(dialog.FileName);
-                _currentProfile = cmbProfiles.Items.Contains(savedName) ? savedName : "";
+                if (cmbProfiles.Items.Contains(savedName)) _currentProfile = savedName;
+                else _currentProfile = "";
                 SelectProfileInCombo(_currentProfile);
                 SetDirty(false);
             }
@@ -802,16 +852,29 @@ namespace FileTransfer2
             WriteLog(_msg.Run.RunStart);
             WriteExecutor();
 
+            // setStatus が null のとき（自動処理）は、行の状態を画面に出さない
+            bool showStatus = setStatus != null;
+
             bool succeeded = true;
             for (int i = 0; i < tasks.Count; i++)
             {
-                setStatus?.Invoke(i, _msg.Status.Proc);
+                if (showStatus) setStatus(i, _msg.Status.Proc);
+
                 succeeded = await RunTaskAsync(tasks[i], firstLineNo + i);
-                setStatus?.Invoke(i, succeeded ? _msg.Status.Done : _msg.Status.Err);
+
+                if (showStatus)
+                {
+                    if (succeeded) setStatus(i, _msg.Status.Done);
+                    else setStatus(i, _msg.Status.Err);
+                }
 
                 if (!succeeded)
                 {
-                    for (int j = i + 1; j < tasks.Count; j++) setStatus?.Invoke(j, _msg.Status.Unexec);
+                    // 失敗したら、残りの行は「未実行」にして止める
+                    if (showStatus)
+                    {
+                        for (int j = i + 1; j < tasks.Count; j++) setStatus(j, _msg.Status.Unexec);
+                    }
                     WriteLog(_msg.Run.RowAbort);
                     break;
                 }
@@ -834,10 +897,17 @@ namespace FileTransfer2
                 return false;
             }
 
-            // 転送先を使う処理は「転送元 → 転送先」の形で出す（復元などで、どこへ戻すのかが分かるように）
-            WriteLog(task.Action == TransferAction.Delete
-                ? Messages.Format(_msg.Run.RowStart, lineNo, _actionNames[task.Action], task.Source)
-                : Messages.Format(_msg.Run.RowStartToDest, lineNo, _actionNames[task.Action], task.Source, task.Destination));
+            string actionName = _actionNames[task.Action];
+            if (task.Action == TransferAction.Delete)
+            {
+                // 削除は転送先を使わないので、転送元だけ出す
+                WriteLog(Messages.Format(_msg.Run.RowStart, lineNo, actionName, task.Source));
+            }
+            else
+            {
+                // それ以外は「転送元 → 転送先」の形で出す（復元などで、どこへ戻すのかが分かるように）
+                WriteLog(Messages.Format(_msg.Run.RowStartToDest, lineNo, actionName, task.Source, task.Destination));
+            }
             try
             {
                 // ファイル操作は時間がかかることがあるので、画面が固まらないよう別スレッドで行う
@@ -980,7 +1050,8 @@ namespace FileTransfer2
                 for (int counter = 0; File.Exists(destPath); counter++)
                 {
                     // plan.tsv → plan_日時.tsv → plan_日時_1.tsv → plan_日時_2.tsv …
-                    destPath = Path.Combine(destDir, counter == 0 ? $"{name}_{stamp}{ext}" : $"{name}_{stamp}_{counter}{ext}");
+                    if (counter == 0) destPath = Path.Combine(destDir, $"{name}_{stamp}{ext}");
+                    else destPath = Path.Combine(destDir, $"{name}_{stamp}_{counter}{ext}");
                 }
                 File.Move(filePath, destPath);
                 return true;

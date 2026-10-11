@@ -14,12 +14,20 @@ namespace UT
     /// </summary>
     public class TempConfigFiles : IDisposable
     {
+        /// <summary>一時フォルダ（テストの設定ファイル・プロファイル・ログなどは全部この中に作る）</summary>
         public string Dir { get; }
+        /// <summary>settings.config のパス</summary>
         public string SettingsPath => Path.Combine(Dir, "settings.config");
+        /// <summary>messages.json のパス（本物をコピーしたもの）</summary>
         public string MessagesPath => Path.Combine(Dir, "messages.json");
+        /// <summary>forbidden_paths.txt のパス</summary>
         public string ForbiddenPath => Path.Combine(Dir, "forbidden_paths.txt");
+        /// <summary>deploy_keep.txt のパス</summary>
         public string DeployKeepPath => Path.Combine(Dir, "deploy_keep.txt");
 
+        /// <summary>
+        /// 一時フォルダを作り、正しい設定ファイル一式（settings.config・messages.json・禁止パス・残すもの）を置く。
+        /// </summary>
         public TempConfigFiles()
         {
             Dir = Path.Combine(Path.GetTempPath(), "FileTransfer2Test_" + Guid.NewGuid().ToString("N"));
@@ -55,16 +63,25 @@ namespace UT
             };
         }
 
+        /// <summary>
+        /// settings.config を書き直す（ValidSettings で作った内容を書き換えてから渡す）。
+        /// </summary>
         public void WriteSettings(Dictionary<string, string> settings)
         {
             File.WriteAllLines(SettingsPath, settings.Select(pair => $"{pair.Key}={pair.Value}"));
         }
 
+        /// <summary>
+        /// forbidden_paths.txt を書き直す（1行に1つ）。
+        /// </summary>
         public void WriteForbiddenPaths(params string[] lines)
         {
             File.WriteAllLines(ForbiddenPath, lines);
         }
 
+        /// <summary>
+        /// deploy_keep.txt を書き直す（1行に1つ）。
+        /// </summary>
         public void WriteDeployKeep(params string[] lines)
         {
             File.WriteAllLines(DeployKeepPath, lines);
@@ -80,6 +97,9 @@ namespace UT
             File.WriteAllText(MessagesPath, json.ToString());
         }
 
+        /// <summary>
+        /// 一時フォルダの settings.config で AppConfig を読み込む。
+        /// </summary>
         public AppConfig LoadConfig()
         {
             var config = new AppConfig();
@@ -87,6 +107,9 @@ namespace UT
             return config;
         }
 
+        /// <summary>
+        /// 一時フォルダごと消す。
+        /// </summary>
         public void Dispose()
         {
             // アプリを終了した直後はログファイルなどがまだ開かれていることがあるので、少し待って再試行する
