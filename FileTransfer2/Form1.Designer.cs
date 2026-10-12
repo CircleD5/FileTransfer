@@ -35,7 +35,6 @@
             this.txtLog = new System.Windows.Forms.TextBox();
             this.btnSave = new System.Windows.Forms.Button();
             this.btnSaveAs = new System.Windows.Forms.Button();
-            this.btnCreateRestorePlan = new System.Windows.Forms.Button();
             this.chkAutoRun = new System.Windows.Forms.CheckBox();
             this.cmbProfiles = new System.Windows.Forms.ComboBox();
             this.pnlUnsaved = new System.Windows.Forms.Panel();
@@ -67,7 +66,7 @@
             //
             // lblProgress（実行中の進み具合「n / 全件」）
             //
-            this.lblProgress.Location = new System.Drawing.Point(820, 26);
+            this.lblProgress.Location = new System.Drawing.Point(714, 26);
             this.lblProgress.Name = "lblProgress";
             this.lblProgress.Size = new System.Drawing.Size(200, 12);
             this.lblProgress.TabIndex = 10;
@@ -109,19 +108,10 @@
             this.btnSaveAs.Text = "名前を付けて保存";
             this.btnSaveAs.UseVisualStyleBackColor = true;
             //
-            // btnCreateRestorePlan
-            //
-            this.btnCreateRestorePlan.Location = new System.Drawing.Point(384, 20);
-            this.btnCreateRestorePlan.Name = "btnCreateRestorePlan";
-            this.btnCreateRestorePlan.Size = new System.Drawing.Size(100, 24);
-            this.btnCreateRestorePlan.TabIndex = 8;
-            this.btnCreateRestorePlan.Text = "復元用を作成";
-            this.btnCreateRestorePlan.UseVisualStyleBackColor = true;
-            //
             // chkAutoRun
             //
             this.chkAutoRun.AutoSize = true;
-            this.chkAutoRun.Location = new System.Drawing.Point(506, 24);
+            this.chkAutoRun.Location = new System.Drawing.Point(400, 24);
             this.chkAutoRun.Name = "chkAutoRun";
             this.chkAutoRun.Size = new System.Drawing.Size(72, 16);
             this.chkAutoRun.TabIndex = 5;
@@ -132,7 +122,7 @@
             // 
             this.cmbProfiles.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.cmbProfiles.FormattingEnabled = true;
-            this.cmbProfiles.Location = new System.Drawing.Point(596, 22);
+            this.cmbProfiles.Location = new System.Drawing.Point(490, 22);
             this.cmbProfiles.Name = "cmbProfiles";
             this.cmbProfiles.Size = new System.Drawing.Size(200, 20);
             this.cmbProfiles.TabIndex = 6;
@@ -186,7 +176,6 @@
             this.Controls.Add(this.pnlUnsaved);
             this.Controls.Add(this.cmbProfiles);
             this.Controls.Add(this.chkAutoRun);
-            this.Controls.Add(this.btnCreateRestorePlan);
             this.Controls.Add(this.btnSaveAs);
             this.Controls.Add(this.btnSave);
             this.Controls.Add(this.txtLog);
@@ -211,7 +200,6 @@
         private System.Windows.Forms.TextBox txtLog;
         private System.Windows.Forms.Button btnSave;
         private System.Windows.Forms.Button btnSaveAs;
-        private System.Windows.Forms.Button btnCreateRestorePlan;
         private System.Windows.Forms.CheckBox chkAutoRun;
         private System.Windows.Forms.ComboBox cmbProfiles;
         private System.Windows.Forms.Panel pnlUnsaved;

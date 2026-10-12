@@ -66,7 +66,7 @@ Program ──読み込む──▶ AppConfig ──持つ──▶ Messages（�
    └─作る─▶ Form1（画面）
               ├─ 一覧の行 ⇄ TransferTask（ReadTask / LoadRows）
               ├─ プロファイル ⇄ TaskFile（TSV）
-              ├─「復元用を作成」─▶ RestorePlan（保存済みのプロファイルから復元用の計画を作る）
+              ├─ 実行の後 ─▶ RestorePlan（実行した行から、復元用の計画を自動で作る）
               └─ 実行 ─▶ FileTransferEngine.ProcessRow（1行ずつ）
 ```
 
@@ -148,7 +148,7 @@ cmbProfiles_SelectedIndexChanged
 3. `messages.json` の `Actions`・`Modes`・`SourceHints`・`DestHints` に文言を足す（足し忘れると起動時にエラーで分かる）
 4. `FileTransferEngine.ProcessRow` に処理を足す
 5. 画面で使わないセルがあれば、`Form1.UpdateRowState` で灰色にする
-6. 元に戻せる処理なら `RestorePlan` に、戻せないなら何もしない（混ざると「復元用を作成」で作れない）
+6. 元に戻せる処理なら `RestorePlan` に、戻せないなら何もしない（混ざると、実行したときに復元用が作られない）
 7. テストを書く（ファイル操作は `MockFileSystem`、画面は `AppDriver`）
 
 ### 設定項目を1つ足す場合

@@ -8,8 +8,6 @@
     "ProgressFormat": "実行中：{0} / {1}",
     "BtnSave": "上書き保存",
     "BtnSaveAs": "名前を付けて保存",
-    "BtnCreateRestorePlan": "復元用を作成",
-    "RestorePlanTitle": "復元用の計画",
     "UnsavedBar": "⚠ 未保存の変更があります。「{0}」を読み込むと、変更は失われます。",
     "BtnDiscardAndLoad": "破棄して読み込む",
     "BtnCancelLoad": "キャンセル",
@@ -78,7 +76,8 @@
     "Proc": "処理中...",
     "Done": "完了",
     "Err": "エラー",
-    "Unexec": "未実行"
+    "Unexec": "未実行",
+    "NoChange": "変更なし"
   },
 
   "Profile": {
@@ -93,11 +92,9 @@
     "SaveError": "保存に失敗しました: {0}",
     "SaveErrorTitle": "エラー",
     "RestorePlanSuffix": "_復元",
-    "RestorePlanSaved": "復元用の計画を保存しました: {0}",
-    "RestorePlanNotCreated": "退避・配置以外の行や入力エラーがあるため、復元用の計画は作れません。（退避と配置だけのプロファイルから作れます）",
-    "RestorePlanNeedSave": "先にプロファイルを保存してから作成してください。（保存した内容から作ります）",
-    "RestorePlanMayBeStale": "復元用の計画（{0}）は、保存する前の内容から作られています。必要なら「復元用を作成」で作り直してください。",
     "RestorePlanSaveError": "復元用の計画を保存できませんでした: {0}",
+    "ExecutedRestorePlanSaved": "実行した内容から、復元用の計画を作りました（元に戻すときは、これを使ってください）: {0}",
+    "UnsavedProfileName": "未保存",
     "DefaultNotFound": "起動時に読み込むプロファイル「{0}」が見つかりません。settings.config の DefaultProfile を確認してください。"
   },
 

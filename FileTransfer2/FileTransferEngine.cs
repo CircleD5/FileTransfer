@@ -63,13 +63,17 @@ namespace FileTransfer2
         /// 触らない場所（forbidden_paths.txt）は、どの処理でもエラーにせず避ける。転送元・転送先そのものが
         /// 触らない場所なら、何もせずに終わる（ログには出る）。
         /// </summary>
-        public void ProcessRow(TransferAction action, string src, string dest, TransferMode mode, bool addDate, int lineNo)
+        /// <returns>
+        /// 何か変えたら true。何もしなかったら false（退避済み・適用済み・復元済みのとき、
+        /// 転送元・転送先そのものが触らない場所のとき）。画面では「変更なし」と表示する。
+        /// </returns>
+        public bool ProcessRow(TransferAction action, string src, string dest, TransferMode mode, bool addDate, int lineNo)
         {
             _lineNo = lineNo;
             _avoided.Clear();
 
             string srcPath = ResolvePath(src);
-            if (IsAvoided(srcPath)) return;
+            if (IsAvoided(srcPath)) return false;
 
             bool isFolder = _fs.Directory.Exists(srcPath);
             if (!isFolder && !_fs.File.Exists(srcPath))
@@ -79,11 +83,11 @@ namespace FileTransfer2
             {
                 if (isFolder) DeleteFolder(srcPath, mode);
                 else ForceDeleteFile(srcPath);
-                return;
+                return true;
             }
 
             string destPath = ResolvePath(dest);
-            if (IsAvoided(destPath)) return;
+            if (IsAvoided(destPath)) return false;
 
             switch (action)
             {
@@ -92,14 +96,13 @@ namespace FileTransfer2
                 case TransferAction.Restore:
                     // リリース用の処理は、フォルダ単位で扱う
                     if (!isFolder) throw new TransferException(_msg.Transfer.SourceMustBeFolder);
-                    if (action == TransferAction.Deploy) Deploy(srcPath, destPath, lineNo);
-                    else if (action == TransferAction.Backup) Backup(srcPath, destPath, lineNo);
-                    else Restore(srcPath, destPath, lineNo);
-                    break;
+                    if (action == TransferAction.Deploy) return Deploy(srcPath, destPath, lineNo);
+                    if (action == TransferAction.Backup) return Backup(srcPath, destPath, lineNo);
+                    return Restore(srcPath, destPath, lineNo);
                 default:
                     if (isFolder) TransferFolder(action, srcPath, destPath, mode, addDate, lineNo);
                     else TransferFile(action, srcPath, destPath, addDate, lineNo);
-                    break;
+                    return true;
             }
         }
 
@@ -129,8 +132,9 @@ namespace FileTransfer2
         ///   5. 適用済みの印を書く
         /// 転送元は「…\リリース番号\配置するフォルダ」の形にする（例：Release\v1.2.0\App）。親フォルダ名がリリース番号になる。
         /// 退避は BackupDir\リリース番号 に置く。
+        /// 適用済みで何もしなかったら false。
         /// </summary>
-        private void Deploy(string srcPath, string destPath, int lineNo)
+        private bool Deploy(string srcPath, string destPath, int lineNo)
         {
             string releaseId = ReleaseIdOf(srcPath);
             if (string.IsNullOrEmpty(releaseId))
@@ -151,7 +155,7 @@ namespace FileTransfer2
             if (_fs.File.Exists(doneMark))
             {
                 _logger(Messages.Format(_msg.Transfer.DeployAlreadyDone, lineNo, releaseId, destPath));
-                return;
+                return false;
             }
 
             // 残すもの：deploy_keep.txt のうち、この配置先の中にあるものだけを使う（配置先そのものや、外を指すものは無視）
@@ -205,14 +209,15 @@ namespace FileTransfer2
             _fs.File.WriteAllText(doneMark, record);
             DeleteFileIfExists(backupDir + RestoredMarkSuffix); // 一度復元した後で配置し直した場合、もう一度復元できるようにする
             AppendDeployHistory(record);
+            return true;
         }
 
         /// <summary>
         /// 退避：フォルダの今の状態を、退避先へまるごとコピーする（元のフォルダはそのまま残す）。
-        /// すでに退避があれば何もしない（2回実行しても、最初の退避＝リリース前の状態を上書きしない）。
+        /// すでに退避があれば何もしない（2回実行しても、最初の退避＝リリース前の状態を上書きしない）。そのときは false。
         /// </summary>
         /// <param name="backupRoot">退避先のフォルダ（例：D:\ReleaseBackup\v1.2.0）</param>
-        private void Backup(string srcPath, string backupRoot, int lineNo)
+        private bool Backup(string srcPath, string backupRoot, int lineNo)
         {
             // 退避先が退避するフォルダの中にあると、コピーが終わらなくなるため止める
             if (IsSamePath(backupRoot, srcPath) || IsInside(backupRoot, srcPath))
@@ -224,7 +229,7 @@ namespace FileTransfer2
             if (_fs.Directory.Exists(snapshot))
             {
                 _logger(Messages.Format(_msg.Transfer.BackupExists, lineNo, snapshot));
-                return;
+                return false;
             }
 
             // 触らない場所は、退避にも入れない
@@ -232,6 +237,7 @@ namespace FileTransfer2
             CheckPathLength(snapshot, isBackedUp, srcPath);
             CopyFolderSafely(srcPath, snapshot + ".tmp", snapshot, isBackedUp);
             _logger(Messages.Format(_msg.Transfer.BackupSaved, lineNo, snapshot));
+            return true;
         }
 
         /// <summary>
@@ -241,9 +247,10 @@ namespace FileTransfer2
         ///   3. 消す予定のファイルを開いてみて、使用中や権限がないものがないかを確かめる
         ///   4. 今の中身を消して、退避の中身をコピーして戻す（退避そのものは残るので、何度でも戻せる）
         ///   5. 配置の適用済みの印を消し、復元済みの印を書く
+        /// 復元済みで何もしなかったら false。
         /// </summary>
         /// <param name="backupRoot">退避先のフォルダ（退避の転送先、または配置なら BackupDir\リリース番号）</param>
-        private void Restore(string backupRoot, string targetPath, int lineNo)
+        private bool Restore(string backupRoot, string targetPath, int lineNo)
         {
             // 戻す先の中に退避先があると、今の状態を退避するときに退避先ごと動いてしまうため止める
             if (IsSamePath(backupRoot, targetPath) || IsInside(backupRoot, targetPath))
@@ -258,7 +265,7 @@ namespace FileTransfer2
             if (_fs.File.Exists(restoredMark))
             {
                 _logger(Messages.Format(_msg.Transfer.RestoreAlreadyDone, lineNo, targetPath));
-                return;
+                return false;
             }
 
             // 触らない場所は、戻す直前の状態の退避にも入れず、消しも戻しもしない（今の forbidden_paths.txt で決める）
@@ -284,6 +291,7 @@ namespace FileTransfer2
             DeleteFileIfExists(snapshot + DoneMarkSuffix); // 配置し直せるように、適用済みの印を消す
             _fs.File.WriteAllText(restoredMark, $"{DateTime.Now:yyyy/MM/dd HH:mm:ss}\t{snapshot}\t{targetPath}\t{Environment.UserName}@{Environment.MachineName}");
             _logger(Messages.Format(_msg.Transfer.RestoreDone, lineNo, targetPath));
+            return true;
         }
 
         private const string DoneMarkSuffix = ".done";

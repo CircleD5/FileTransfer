@@ -51,7 +51,6 @@ namespace FileTransfer2
             btnStop.Click += btnStop_Click;
             btnSave.Click += btnSave_Click;
             btnSaveAs.Click += btnSaveAs_Click;
-            btnCreateRestorePlan.Click += btnCreateRestorePlan_Click;
             chkAutoRun.CheckedChanged += chkAutoRun_CheckedChanged;
             cmbProfiles.SelectedIndexChanged += cmbProfiles_SelectedIndexChanged;
             cmbProfiles.MouseWheel += cmbProfiles_MouseWheel;
@@ -84,7 +83,6 @@ namespace FileTransfer2
             btnStop.Text = _msg.Ui.BtnStop;
             btnSave.Text = _msg.Ui.BtnSave;
             btnSaveAs.Text = _msg.Ui.BtnSaveAs;
-            btnCreateRestorePlan.Text = _msg.Ui.BtnCreateRestorePlan;
             btnDiscardAndLoad.Text = _msg.Ui.BtnDiscardAndLoad;
             btnCancelLoad.Text = _msg.Ui.BtnCancelLoad;
             chkAutoRun.Text = _msg.Ui.ChkAutoRun;
@@ -499,7 +497,6 @@ namespace FileTransfer2
             btnExecuteAll.Enabled = !isRunning;
             btnSave.Enabled = !isRunning;
             btnSaveAs.Enabled = !isRunning;
-            btnCreateRestorePlan.Enabled = !isRunning;
             cmbProfiles.Enabled = !isRunning;
             pnlUnsaved.Enabled = !isRunning;
             chkAutoRun.Enabled = !isRunning;
@@ -754,11 +751,6 @@ namespace FileTransfer2
                 return false;
             }
 
-            // 復元用の計画は自動では作り直さないので、古いままになっているかもしれないことを知らせる
-            string restorePath = RestorePlan.PathFor(filePath, _msg);
-            if (File.Exists(restorePath))
-                WriteLog(Messages.Format(_msg.Profile.RestorePlanMayBeStale, Path.GetFileName(restorePath)));
-
             RefreshProfileList();
             return true;
         }
@@ -770,51 +762,6 @@ namespace FileTransfer2
         {
             WriteLog(message);
             MessageBox.Show(message, _msg.Profile.SaveErrorTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-
-        /// <summary>
-        /// 「復元用を作成」：今開いているプロファイル（保存済みの内容）から、元に戻すための計画（〇〇_復元.tsv）を作る。
-        /// 退避・配置だけでできたプロファイルからだけ作れる。
-        /// </summary>
-        private void btnCreateRestorePlan_Click(object sender, EventArgs e)
-        {
-            CommitGridEdit();
-            // 画面の内容と保存した内容が違うと、復元用がどちらに対応するのか分からなくなるので、保存済みのときだけ作る
-            if (_currentProfile == "" || _isDirty)
-            {
-                ShowRestorePlanResult(_msg.Profile.RestorePlanNeedSave, MessageBoxIcon.Warning);
-                return;
-            }
-
-            string profilePath = GetProfilePath(_currentProfile);
-            string restorePath = RestorePlan.PathFor(profilePath, _msg);
-            try
-            {
-                List<TransferTask> restoreTasks = RestorePlan.Create(TaskFile.Load(profilePath), _config);
-                if (restoreTasks == null)
-                {
-                    ShowRestorePlanResult(_msg.Profile.RestorePlanNotCreated, MessageBoxIcon.Warning);
-                    return;
-                }
-                TaskFile.Save(restorePath, restoreTasks);
-            }
-            catch (Exception ex)
-            {
-                ShowRestorePlanResult(Messages.Format(_msg.Profile.RestorePlanSaveError, ex.Message), MessageBoxIcon.Error);
-                return;
-            }
-
-            RefreshProfileList();
-            ShowRestorePlanResult(Messages.Format(_msg.Profile.RestorePlanSaved, Path.GetFileName(restorePath)), MessageBoxIcon.Information);
-        }
-
-        /// <summary>
-        /// 「復元用を作成」の結果を、ログとメッセージボックスで知らせる。
-        /// </summary>
-        private void ShowRestorePlanResult(string message, MessageBoxIcon icon)
-        {
-            WriteLog(message);
-            MessageBox.Show(message, _msg.Ui.RestorePlanTitle, MessageBoxButtons.OK, icon);
         }
 
         #endregion
@@ -835,6 +782,21 @@ namespace FileTransfer2
         }
 
         /// <summary>
+        /// 1行の実行の結果。
+        /// </summary>
+        private enum RowOutcome
+        {
+            /// <summary>何か変えた（画面では「完了」）</summary>
+            Changed,
+            /// <summary>何もしなかった（退避済み・適用済み・復元済みなど。画面では「変更なし」）</summary>
+            Unchanged,
+            /// <summary>入力エラーで、実行しなかった（何も変えていない）</summary>
+            InputError,
+            /// <summary>実行したが失敗した（途中まで変えたかもしれない）</summary>
+            Failed,
+        }
+
+        /// <summary>
         /// 「すべて実行」：一覧の行を上から順に実行する。実行中は画面を操作できなくする。
         /// </summary>
         private async void btnExecuteAll_Click(object sender, EventArgs e)
@@ -845,10 +807,14 @@ namespace FileTransfer2
             CommitGridEdit();
             List<DataGridViewRow> rows = GetTaskRows();
             foreach (DataGridViewRow row in rows) SetStatus(row, _msg.Status.Wait);
+            List<TransferTask> tasks = rows.Select(ReadTask).ToList();
 
+            var outcomes = new List<RowOutcome>();
             SetRunning(true);
-            try { await RunPlanAsync(rows.Select(ReadTask).ToList(), 1, (index, status) => SetStatus(rows[index], status)); }
+            try { await RunPlanAsync(tasks, 1, (index, status) => SetStatus(rows[index], status), outcomes); }
             finally { SetRunning(false); }
+
+            SaveExecutedRestorePlan(ProfileNameForRestorePlan(), tasks, outcomes);
         }
 
         /// <summary>
@@ -860,9 +826,58 @@ namespace FileTransfer2
             if (_isRunning) return;
 
             CommitGridEdit();
+            var tasks = new List<TransferTask> { ReadTask(row) };
+            var outcomes = new List<RowOutcome>();
             SetRunning(true);
-            try { await RunPlanAsync(new[] { ReadTask(row) }, row.Index + 1, (index, status) => SetStatus(row, status)); }
+            try { await RunPlanAsync(tasks, row.Index + 1, (index, status) => SetStatus(row, status), outcomes); }
             finally { SetRunning(false); }
+
+            SaveExecutedRestorePlan(ProfileNameForRestorePlan(), tasks, outcomes);
+        }
+
+        /// <summary>
+        /// 一覧から実行したときの、復元用の計画の名前に使うプロファイル名。プロファイルを開いていないときは「未保存」。
+        /// </summary>
+        private string ProfileNameForRestorePlan()
+        {
+            if (_currentProfile == "") return _msg.Profile.UnsavedProfileName;
+            return _currentProfile;
+        }
+
+        /// <summary>
+        /// 退避・配置を実行したら、実際に実行した行から復元用の計画を作る（〇〇_復元_日時.tsv。上書きしない）。
+        /// 一覧から・個別実行・自動処理のどれで実行しても作る。実行した後でプロファイルを編集しても、実行した内容を戻せるように。
+        /// 作らないとき：退避・配置以外の行を実行した／何も変えなかった（全部「変更なし」、入力エラーで止まった）。
+        /// </summary>
+        /// <param name="baseName">復元用の計画の名前の元（プロファイル名、自動処理なら計画ファイルの名前）</param>
+        /// <param name="outcomes">実行した行の結果（tasks の先頭から、実行した行の数だけ）</param>
+        private void SaveExecutedRestorePlan(string baseName, IList<TransferTask> tasks, List<RowOutcome> outcomes)
+        {
+            // 何も変えなかった実行なら、戻すものはない（同じ計画をもう一度実行しただけ、など）
+            if (!outcomes.Any(outcome => outcome == RowOutcome.Changed || outcome == RowOutcome.Failed)) return;
+
+            // 戻すもの：実行した行。「変更なし」の行も含める（前の実行で変えたものも、この1つの復元用でまとめて戻せるように）
+            var executed = new List<TransferTask>();
+            for (int i = 0; i < outcomes.Count; i++)
+            {
+                if (outcomes[i] != RowOutcome.InputError) executed.Add(tasks[i]);
+            }
+
+            List<TransferTask> restoreTasks = RestorePlan.CreateFromExecuted(executed, _config, Directory.Exists);
+            if (restoreTasks == null) return;
+
+            string restorePath = RestorePlan.PathForExecuted(_config.GetFullPath(_config.ProfilesDir), baseName, _msg, DateTime.Now);
+            try
+            {
+                TaskFile.Save(restorePath, restoreTasks);
+            }
+            catch (Exception ex)
+            {
+                WriteLog(Messages.Format(_msg.Profile.RestorePlanSaveError, ex.Message));
+                return;
+            }
+            WriteLog(Messages.Format(_msg.Profile.ExecutedRestorePlanSaved, Path.GetFileName(restorePath)));
+            RefreshProfileList();
         }
 
         /// <summary>
@@ -884,7 +899,8 @@ namespace FileTransfer2
         /// </summary>
         /// <param name="firstLineNo">1件目の行番号（ログの「n行目」に使う）</param>
         /// <param name="setStatus">各行の状態（処理中・完了など）を受け取る処理。画面に出さないなら null。</param>
-        private async Task<RunResult> RunPlanAsync(IList<TransferTask> tasks, int firstLineNo, Action<int, string> setStatus)
+        /// <param name="outcomes">実行した行の結果を、上から順に入れる（復元用の計画を作るときに使う）</param>
+        private async Task<RunResult> RunPlanAsync(IList<TransferTask> tasks, int firstLineNo, Action<int, string> setStatus, List<RowOutcome> outcomes)
         {
             WriteLog(_msg.Run.RunStart);
             WriteExecutor();
@@ -910,11 +926,14 @@ namespace FileTransfer2
                 lblProgress.Text = Messages.Format(_msg.Ui.ProgressFormat, i + 1, tasks.Count);
                 if (showStatus) setStatus(i, _msg.Status.Proc);
 
-                bool succeeded = await RunTaskAsync(tasks[i], firstLineNo + i);
+                RowOutcome outcome = await RunTaskAsync(tasks[i], firstLineNo + i);
+                outcomes.Add(outcome);
+                bool succeeded = outcome == RowOutcome.Changed || outcome == RowOutcome.Unchanged;
 
                 if (showStatus)
                 {
-                    if (succeeded) setStatus(i, _msg.Status.Done);
+                    if (outcome == RowOutcome.Changed) setStatus(i, _msg.Status.Done);
+                    else if (outcome == RowOutcome.Unchanged) setStatus(i, _msg.Status.NoChange);
                     else setStatus(i, _msg.Status.Err);
                 }
 
@@ -937,15 +956,15 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 処理1件を実行する。成功したら true。失敗の内容はログに出す。
+        /// 処理1件を実行する。失敗の内容はログに出す。
         /// </summary>
-        private async Task<bool> RunTaskAsync(TransferTask task, int lineNo)
+        private async Task<RowOutcome> RunTaskAsync(TransferTask task, int lineNo)
         {
             string inputError = task.Validate(_config);
             if (inputError != null)
             {
                 WriteLog(Messages.Format(_msg.Run.InputError, lineNo, inputError));
-                return false;
+                return RowOutcome.InputError;
             }
 
             string actionName = _actionNames[task.Action];
@@ -962,14 +981,15 @@ namespace FileTransfer2
             try
             {
                 // ファイル操作は時間がかかることがあるので、画面が固まらないよう別スレッドで行う
-                await Task.Run(() => _engine.ProcessRow(task.Action, task.Source, task.Destination, task.Mode, task.AddDate, lineNo));
+                bool changed = await Task.Run(() => _engine.ProcessRow(task.Action, task.Source, task.Destination, task.Mode, task.AddDate, lineNo));
                 WriteLog(Messages.Format(_msg.Run.RowSuccess, lineNo));
-                return true;
+                if (changed) return RowOutcome.Changed;
+                return RowOutcome.Unchanged;
             }
             catch (Exception ex)
             {
                 WriteLog(Messages.Format(_msg.Run.RowFailed, lineNo, ex.Message));
-                return false;
+                return RowOutcome.Failed;
             }
         }
 
@@ -1053,6 +1073,7 @@ namespace FileTransfer2
 
         /// <summary>
         /// 自動処理：計画ファイル1つを読み込んで実行する。読み込めなかったときは Failed。
+        /// 退避・配置を実行したら、計画ファイルの名前で復元用の計画も作る。
         /// </summary>
         private async Task<RunResult> RunPlanFileAsync(string planPath)
         {
@@ -1067,7 +1088,10 @@ namespace FileTransfer2
                 return RunResult.Failed;
             }
             // 自動処理は一覧を使わないので、行の状態は画面に出さない
-            return await RunPlanAsync(tasks, 1, null);
+            var outcomes = new List<RowOutcome>();
+            RunResult result = await RunPlanAsync(tasks, 1, null, outcomes);
+            SaveExecutedRestorePlan(Path.GetFileNameWithoutExtension(planPath), tasks, outcomes);
+            return result;
         }
 
         /// <summary>

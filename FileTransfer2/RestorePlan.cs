@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -47,14 +48,39 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 復元用の計画の保存先（例：Profiles\v1.2.0.tsv → Profiles\v1.2.0_復元.tsv）。
+        /// 実際に実行した行から、復元用の計画を作る（実行した後でプロファイルを編集しても、実行した内容を戻せるように）。
+        /// 戻す元の退避がない行は入れない（退避のコピーの途中で止まった行など。本番は変わっていないので戻す必要がなく、
+        /// 入れておくと、復元のときにその行のエラーで止まって、ほかの行を戻せなくなるため）。
+        /// 作れない（退避・配置以外の行がある、戻すものがない）ときは null。
         /// </summary>
-        public static string PathFor(string planPath, Messages msg)
+        /// <param name="executedTasks">実行した行（入力エラーで実行しなかった行と、未実行の行は含めない）</param>
+        /// <param name="directoryExists">フォルダがあるか（テストでは偽物に差し替える）</param>
+        public static List<TransferTask> CreateFromExecuted(IList<TransferTask> executedTasks, AppConfig config, Func<string, bool> directoryExists)
         {
-            string name = Path.GetFileNameWithoutExtension(planPath) + msg.Profile.RestorePlanSuffix + Path.GetExtension(planPath);
-            string folder = Path.GetDirectoryName(planPath);
-            if (folder == null) folder = ""; // ドライブ直下などで親フォルダがないとき
-            return Path.Combine(folder, name);
+            List<TransferTask> restoreTasks = Create(executedTasks, config);
+            if (restoreTasks == null) return null;
+
+            List<TransferTask> withBackup = restoreTasks.Where(task => directoryExists(SnapshotOf(task, config))).ToList();
+            if (withBackup.Count == 0) return null;
+            return withBackup;
+        }
+
+        /// <summary>
+        /// 実行した内容から作る復元用の計画の保存先（例：Profiles\Release.tsv → Profiles\Release_復元_20261013153000.tsv）。
+        /// 実行するたびに別のファイルにする（前の実行の復元用を上書きしない）。
+        /// </summary>
+        public static string PathForExecuted(string profilesDir, string profileName, Messages msg, DateTime now)
+        {
+            return Path.Combine(profilesDir, $"{profileName}{msg.Profile.RestorePlanSuffix}_{now:yyyyMMddHHmmss}.tsv");
+        }
+
+        /// <summary>
+        /// 復元の行が戻す元にする退避のフォルダ（退避先\対象フォルダのパスから作った名前）。エンジンと同じ場所を指す。
+        /// </summary>
+        private static string SnapshotOf(TransferTask restoreTask, AppConfig config)
+        {
+            string target = ToFullPath(restoreTask.Destination, config);
+            return Path.Combine(ToFullPath(restoreTask.Source, config), FileTransferEngine.SnapshotName(target));
         }
 
         /// <summary>

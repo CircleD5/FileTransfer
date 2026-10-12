@@ -52,8 +52,6 @@ namespace FileTransfer2
         public string ProgressFormat { get; set; }
         public string BtnSave { get; set; }
         public string BtnSaveAs { get; set; }
-        public string BtnCreateRestorePlan { get; set; }
-        public string RestorePlanTitle { get; set; }
         public string UnsavedBar { get; set; }
         public string BtnDiscardAndLoad { get; set; }
         public string BtnCancelLoad { get; set; }
@@ -89,6 +87,7 @@ namespace FileTransfer2
         public string Done { get; set; }
         public string Err { get; set; }
         public string Unexec { get; set; }
+        public string NoChange { get; set; }
     }
 
     [JsonObject(ItemRequired = Required.Always)]
@@ -105,11 +104,9 @@ namespace FileTransfer2
         public string SaveError { get; set; }
         public string SaveErrorTitle { get; set; }
         public string RestorePlanSuffix { get; set; }
-        public string RestorePlanSaved { get; set; }
-        public string RestorePlanNotCreated { get; set; }
-        public string RestorePlanNeedSave { get; set; }
-        public string RestorePlanMayBeStale { get; set; }
         public string RestorePlanSaveError { get; set; }
+        public string ExecutedRestorePlanSaved { get; set; }
+        public string UnsavedProfileName { get; set; }
         public string DefaultNotFound { get; set; }
     }
 
