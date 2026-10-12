@@ -54,6 +54,7 @@ FileTransfer2\                 アプリ本体（.NET Framework 4.8 / WinForms�
 UT\                            テスト（xUnit）
   Helpers\AppDriver.cs         画面操作をまとめたクラス（UI テスト用）
   Helpers\TempConfigFiles.cs   テスト用の設定ファイル一式を一時フォルダに作る
+  Helpers\DiskFullFileSystem.cs 決めた回数コピーしたら容量不足にする偽物のファイルシステム（容量不足のテスト用）
 docs\                          ドキュメント
 REVIEW.md                      レビューの指摘と判断、変更の記録
 ```
@@ -72,7 +73,7 @@ Program ──読み込む──▶ AppConfig ──持つ──▶ Messages（�
 
 | クラス | 役割 | 画面に依存するか |
 |---|---|---|
-| `FileTransferEngine` | ファイル操作。失敗したら例外を投げる | しない（`IFileSystem` を受け取るので、テストで偽物に差し替えられる） |
+| `FileTransferEngine` | ファイル操作。何か変えたか（「変更なし」か）を返し、失敗したら例外を投げる | しない（`IFileSystem` を受け取るので、テストで偽物に差し替えられる） |
 | `TransferTask` | 1行分のデータ。入力チェック（`Validate`）と TSV 変換 | しない |
 | `TaskFile` / `RestorePlan` / `LogFiles` | ファイルの読み書き、計画の生成、ログの整理 | しない |
 | `AppConfig` / `Messages` | 設定と文言 | しない |
@@ -102,15 +103,18 @@ Program.Main
 
 ```
 btnExecuteAll_Click / ExecuteRowAsync / RunPlanFileAsync
-  └ RunPlanAsync(計画, 1件目の行番号, 状態を受け取る処理)
-      ├ 開始ログ・実行者
-      └ 1件ずつ RunTaskAsync
-          ├ TransferTask.Validate     入力エラーなら false
-          └ Task.Run(engine.ProcessRow)  例外なら false
-          → false なら残りを「未実行」にして止める
+  ├ RunPlanAsync(計画, 1件目の行番号, 状態を受け取る処理, 行の結果を入れる一覧)
+  │   ├ 開始ログ・実行者
+  │   └ 1件ずつ（「中止」が押されていたら、残りを「未実行」にして止める）
+  │       └ RunTaskAsync → RowOutcome
+  │           ├ TransferTask.Validate        入力エラーなら InputError
+  │           └ Task.Run(engine.ProcessRow)  何か変えたら Changed（完了）、何もしなかったら Unchanged（変更なし）、例外なら Failed
+  │       → InputError / Failed なら、残りを「未実行」にして止める
+  └ SaveExecutedRestorePlan       退避・配置を実行していたら、実行した行から 〇〇_復元_日時.tsv を作る
 ```
 
-違いは「行の状態を画面に出すかどうか」だけで、`RunPlanAsync` に渡す処理（`setStatus`）で切り替えている。
+- 3つの違いは「行の状態を画面に出すかどうか」だけで、`RunPlanAsync` に渡す処理（`setStatus`）で切り替えている。
+- 復元用の計画は、実行が終わった後（失敗・中止で止まった場合も）に作る。アプリが強制終了されたときは作られない。
 
 ### プロファイルの選択
 
@@ -179,13 +183,14 @@ cmbProfiles_SelectedIndexChanged
 - `RunCoverage.bat /noopen` とすると、ブラウザを開かない。
 - テストが失敗すると、メッセージを出して終了コード 1 で止まる（レポートは作らない）。
 - UI テストで起動したアプリの中で動いたコード（画面の処理）も、`-mergebyhash` で合算して計測している。
-- Visual Studio が自動で作る `Properties`（Resources / Settings。使っていない）は計測しない。
+- Visual Studio が自動で作る `Properties`（Resources。使っていない）は計測しない。
 - bat は **UTF-8（BOM なし）・CRLF** で保存する。BOM を付けたり、最初の `chcp 65001` を消したりすると、日本語の Windows で表示が文字化けする。
 - `coverage.xml` と `CoverageReport\` は git の管理外（`.gitignore`）。
 
 | テストファイル | 内容 |
 |---|---|
-| `FileTransferEngineTests` / `DeployTests` / `BackupRestoreTests` | ファイル操作（`MockFileSystem` で、実際のファイルは触らない） |
+| `FileTransferEngineTests` / `DeployTests` / `BackupRestoreTests` / `AvoidTests` | ファイル操作（`MockFileSystem` で、実際のファイルは触らない）。`AvoidTests` は触らない場所 |
+| `DiskFullTests` | 配置・退避・復元の途中で容量不足になっても、再実行か復元で元に戻ること |
 | `TransferTaskTests` / `RestorePlanTests` / `AppConfigTests` / `LogFilesTests` | データ・計画・設定・ログ |
 | `UiTests` / `E2ETests` / `StartupTests` / `StopTests` | アプリを起動して画面から操作する（`StopTests` は「中止」と進み具合） |
 

@@ -36,7 +36,7 @@ if errorlevel 1 (
 
 rem 【2】テストを実行しながらカバレッジを計測する
 rem   -filter           : FileTransfer2 を計測する。テスト自身（UT）と、Visual Studio が自動で作る
-rem                       Properties（Resources / Settings。このアプリでは使っていない）は計測しない
+rem                       Properties（Resources。このアプリでは使っていない）は計測しない
 rem   -mergebyhash      : UI テストで別に起動したアプリも、同じプログラムとして合算する
 rem   -returntargetcode : テストが失敗したら、このスクリプトも失敗として止める
 echo [2/3] テストの実行とカバレッジの計測中...（UI テストのため、アプリの画面が何度か開きます）
