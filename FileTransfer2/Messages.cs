@@ -48,6 +48,8 @@ namespace FileTransfer2
         public string DirtyMark { get; set; }
         public string ProfileUnselected { get; set; }
         public string BtnExecuteAll { get; set; }
+        public string BtnStop { get; set; }
+        public string ProgressFormat { get; set; }
         public string BtnSave { get; set; }
         public string BtnSaveAs { get; set; }
         public string BtnCreateRestorePlan { get; set; }
@@ -135,6 +137,8 @@ namespace FileTransfer2
         public string RowSuccess { get; set; }
         public string RowFailed { get; set; }
         public string RowAbort { get; set; }
+        public string StopRequested { get; set; }
+        public string Stopped { get; set; }
         public string InputError { get; set; }
         public string Executor { get; set; }
         public string LogsDeleted { get; set; }
@@ -160,15 +164,18 @@ namespace FileTransfer2
         public string SourceNotFound { get; set; }
         public string SamePath { get; set; }
         public string Conflict { get; set; }
-        public string ForbiddenPath { get; set; }
+        public string Avoided { get; set; }
         public string SourceMustBeFolder { get; set; }
         public string DeployNoReleaseId { get; set; }
         public string DeployAlreadyDone { get; set; }
         public string DeployBackedUp { get; set; }
         public string DeployKept { get; set; }
+        public string CannotModify { get; set; }
         public string BackupSaved { get; set; }
         public string BackupExists { get; set; }
         public string RestoreNoBackup { get; set; }
+        public string PathTooLong { get; set; }
+        public string SnapshotNameConflict { get; set; }
         public string RestoreRolledBack { get; set; }
         public string RestoreDone { get; set; }
         public string RestoreAlreadyDone { get; set; }
@@ -194,6 +201,7 @@ namespace FileTransfer2
         public string FileNotFound { get; set; }
         public string SettingsInvalid { get; set; }
         public string SectionMissing { get; set; }
+        public string PathListInvalid { get; set; }
         public string MessagesMissingKeys { get; set; }
         public string FolderCreateFailed { get; set; }
     }

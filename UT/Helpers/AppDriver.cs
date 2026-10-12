@@ -88,6 +88,26 @@ namespace UT
         }
 
         /// <summary>
+        /// 「すべて実行」を押すだけで、終わるのを待たない（実行中の画面や「中止」を確かめるとき）。
+        /// 終わるのを待つときは WaitForRunEnd を使う。
+        /// </summary>
+        public void StartExecuteAll() => Invoke(GetById("btnExecuteAll"));
+
+        /// <summary>
+        /// ログの「実行が終わりました」が count 回になるまで待つ（StartExecuteAll で始めた実行の終わりを待つ）。
+        /// </summary>
+        public void WaitForRunEnd(int count) => WaitUntil(() => CountInLog(Msg.Run.RunEnd) >= count, "実行が終わりませんでした。");
+
+        /// <summary>「中止」を押す。</summary>
+        public void Stop() => Invoke(GetById("btnStop"));
+        /// <summary>「中止」が押せるか（実行中だけ押せる）</summary>
+        public bool IsStopEnabled => GetById("btnStop").IsEnabled;
+        /// <summary>進み具合の表示（「実行中：n / 全件」。実行していないときは空）</summary>
+        public string Progress => GetById("lblProgress").Name;
+        /// <summary>ログに text が何回出ているか</summary>
+        public int CountLog(string text) => CountInLog(text);
+
+        /// <summary>
         /// 「名前を付けて保存」で、指定したパスに保存する。
         /// </summary>
         public void SaveAs(string filePath)
@@ -140,6 +160,9 @@ namespace UT
             Invoke(GetById("btnCancelLoad"));
             WaitUntil(() => !IsUnsavedBarVisible, "確認の帯が消えませんでした。");
         }
+
+        /// <summary>「自動処理」にチェックが入っているか</summary>
+        public bool IsAutoRunOn => GetById("chkAutoRun").Patterns.Toggle.Pattern.ToggleState.Value == ToggleState.On;
 
         /// <summary>
         /// 「自動処理」のチェックを入れる（on が true）・外す。

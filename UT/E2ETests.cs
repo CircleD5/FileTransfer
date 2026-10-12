@@ -114,7 +114,7 @@ namespace UT
 
             Assert.Equal(_app.Msg.Status.Done, _app.GetStatus(0));
             Assert.Equal("new", File.ReadAllText(Path.Combine(target, "App.exe")));
-            string backup = Path.Combine(_app.Config.BackupDir, "v1.0.0", target.Replace(":", "").Replace('\\', '_'));
+            string backup = Path.Combine(_app.Config.BackupDir, "v1.0.0", FileTransferEngine.SnapshotName(target));
             Assert.Equal("old", File.ReadAllText(Path.Combine(backup, "App.exe")));
             Assert.Contains(Messages.Format(_app.Msg.Transfer.DeployAlreadyDone, 1, "v1.0.0", target), _app.Log);
         }

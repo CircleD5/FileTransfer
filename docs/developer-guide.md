@@ -187,7 +187,7 @@ cmbProfiles_SelectedIndexChanged
 |---|---|
 | `FileTransferEngineTests` / `DeployTests` / `BackupRestoreTests` | ファイル操作（`MockFileSystem` で、実際のファイルは触らない） |
 | `TransferTaskTests` / `RestorePlanTests` / `AppConfigTests` / `LogFilesTests` | データ・計画・設定・ログ |
-| `UiTests` / `E2ETests` / `StartupTests` | アプリを起動して画面から操作する |
+| `UiTests` / `E2ETests` / `StartupTests` / `StopTests` | アプリを起動して画面から操作する（`StopTests` は「中止」と進み具合） |
 
 ## 8. UI テスト（AppDriver）の書き方とハマりどころ
 
@@ -210,6 +210,8 @@ Assert.Equal(_app.Msg.Status.Done, _app.GetStatus(0));
 | ツールチップ（`ToolTipText`）を確かめたい | UI Automation から読めない | 自動テストにせず、画面で目視確認する |
 | 行が多いと、行数が1つ多く数えられ、列の位置もずれる | 一覧が画面に入りきらないとスクロールバーが出て、それも一覧の子要素として先頭に入ってくる | スクロールバーを除いてから行を数える（`GetGridRows`）。なお、画面の外の行も要素としては全部あるので、スクロールしなくても読み書き・ボタン操作ができる（100行で確認済み） |
 | ログが長くなると「実行が終わりませんでした」で失敗する | 画面のログ欄（TextBox）を UI Automation で読むと、4,096文字で切れる | ログはログファイルから読む（`AppDriver.Log`）。画面のログ欄を確かめたいときだけ `ScreenLog` を使う |
+| ラベルが「画面に見つかりません」になる | `AutoSize` のラベルは、文字が空のとき幅が 0 になり、UI Automation から見えなくなる | 文字が空になることがあるラベルは、`AutoSize` を外して大きさを決めておく（`lblProgress`） |
+| 「2回続けて押しても1回だけ実行される」のテストが、2回実行されて失敗する | 実行がすぐ終わると、2回目のクリックが届く前に1回目が終わり、正しく2回目が実行される | 行の間の待ち時間（`RowDelayMs`）を長くして、2回目のクリックが必ず実行中に届くようにする（`StopTests`） |
 | テスト中にたまに失敗する | テストが開いたアプリの画面を人が触った（クリックで編集中のセルが確定されるなど） | テスト中は、開いたアプリの画面に触らない |
 
 画面が UI Automation からどう見えているか分からないときは、`DumpTree` で書き出す。

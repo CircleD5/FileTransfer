@@ -24,8 +24,8 @@ namespace FileTransfer2
     /// 設定ファイルを読み込んで保持するクラス。
     /// ・messages.json       … 画面やログに出す文言（JSON。中身は Messages クラスを参照）。settings.config と同じフォルダに置く
     /// ・settings.config     … 動作設定（XML。.NET 標準の設定ファイル。中身は SettingsSection クラスを参照）と、log4net の設定
-    /// ・forbidden_paths.txt … 実行を禁止するパスの一覧（1行に1つ）
-    /// ・deploy_keep.txt     … 配置のときに本番に残すものの一覧（1行に1つ）
+    /// ・forbidden_paths.txt … どの処理でも触らない場所の一覧（1行に1つの絶対パス）
+    /// ・deploy_keep.txt     … 配置のときに本番に残し、退避もするものの一覧（1行に1つの絶対パス）
     /// プログラム側に既定値は持たない。ファイルや項目が欠けていたら ConfigException を投げる。
     /// </summary>
     public class AppConfig
@@ -52,7 +52,7 @@ namespace FileTransfer2
         public string LogDir { get; private set; }
         /// <summary>日付ごとのログを残す日数（0 なら消さない）</summary>
         public int LogRetentionDays { get; private set; }
-        /// <summary>実行を禁止するパスの一覧ファイルの場所</summary>
+        /// <summary>どの処理でも触らない場所の一覧ファイルの場所</summary>
         public string ForbiddenPathsFile { get; private set; }
         /// <summary>配置のときに本番フォルダを退避する先（この下にリリース番号のフォルダができる）</summary>
         public string BackupDir { get; private set; }
@@ -64,9 +64,9 @@ namespace FileTransfer2
         /// <summary>画面やログに出す文言</summary>
         public Messages Msg { get; private set; }
 
-        /// <summary>実行を禁止するパスの一覧（完全一致で比べる）</summary>
+        /// <summary>どの処理でも触らない場所（絶対パス。その中のものも触らない）</summary>
         public IReadOnlyList<string> ForbiddenPaths => _forbiddenPaths;
-        /// <summary>配置のときに本番フォルダに残すもの（配置先フォルダから見た相対パス）</summary>
+        /// <summary>配置のときに本番フォルダに残し、退避もするもの（絶対パス。使うのは、配置先の中にあるものだけ）</summary>
         public IReadOnlyList<string> DeployKeepPaths => _deployKeepPaths;
 
         private readonly List<string> _forbiddenPaths = new List<string>();
@@ -83,9 +83,8 @@ namespace FileTransfer2
             Msg = LoadMessages(Path.Combine(Path.GetDirectoryName(SettingsFullPath), MessagesFileName));
 
             LoadSettings(SettingsFullPath);
-            _forbiddenPaths.AddRange(ReadSettingLines(GetFullPath(ForbiddenPathsFile)));
-            // 先頭の \ は付けても付けなくても同じ意味にする（「\Logs」も「Logs」も配置先の直下の Logs）
-            _deployKeepPaths.AddRange(ReadSettingLines(GetFullPath(DeployKeepFile)).Select(path => path.Trim('\\')));
+            _forbiddenPaths.AddRange(ReadPathList(GetFullPath(ForbiddenPathsFile)));
+            _deployKeepPaths.AddRange(ReadPathList(GetFullPath(DeployKeepFile)));
         }
 
         /// <summary>
@@ -199,21 +198,47 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 一覧ファイル（1行に1つ）を読み、空行と「#」で始まるコメント行を除いた行を返す。ファイルがなければ ConfigException。
+        /// 1行に1つの絶対パスの一覧（forbidden_paths.txt / deploy_keep.txt）を読む。空行と「#」で始まる行は飛ばす。
+        /// 返すパスは、実際に指す場所にそろえ、末尾の \ を取り除いたもの。
+        /// 相対パスやパスに使えない文字があれば、行番号を書いて ConfigException
+        /// （黙って無視すると、守ったつもり・残したつもりのものが消える事故になるため）。
         /// </summary>
-        private List<string> ReadSettingLines(string path)
+        private List<string> ReadPathList(string path)
         {
             if (!File.Exists(path))
                 throw new ConfigException(Messages.Format(Msg.Config.FileNotFound, path));
 
-            var lines = new List<string>();
-            foreach (string line in File.ReadAllLines(path, Encoding.UTF8))
+            var paths = new List<string>();
+            string[] lines = File.ReadAllLines(path, Encoding.UTF8);
+            for (int i = 0; i < lines.Length; i++)
             {
-                string trimmed = line.Trim();
-                if (trimmed.Length == 0 || trimmed.StartsWith("#")) continue;
-                lines.Add(trimmed);
+                // エクスプローラーの「パスのコピー」で付く前後の " は取り除く
+                string line = lines[i].Trim().Trim('"');
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+
+                string fullPath = null;
+                if (IsFullyQualified(line))
+                {
+                    // 「..」などを含むパスを、実際に指す場所にそろえる（パスに使えない文字があれば誤り）
+                    try { fullPath = Path.GetFullPath(line).TrimEnd('\\'); }
+                    catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException) { }
+                }
+                if (fullPath == null)
+                    throw new ConfigException(Messages.Format(Msg.Config.PathListInvalid, path, i + 1, lines[i]));
+
+                paths.Add(fullPath);
             }
-            return lines;
+            return paths;
+        }
+
+        /// <summary>
+        /// 「C:\…」か「\\サーバー\…」の形の絶対パスか。
+        /// （「\Logs」や「C:Logs」は、どこを指すかが実行するときの状態で変わるので、絶対パスとみなさない）
+        /// </summary>
+        private static bool IsFullyQualified(string path)
+        {
+            if (path.StartsWith(@"\\")) return true;
+            return path.Length >= 3 && char.IsLetter(path[0]) && path[1] == ':' && path[2] == '\\';
         }
     }
 }

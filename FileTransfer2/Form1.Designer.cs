@@ -29,6 +29,8 @@
         private void InitializeComponent()
         {
             this.btnExecuteAll = new System.Windows.Forms.Button();
+            this.btnStop = new System.Windows.Forms.Button();
+            this.lblProgress = new System.Windows.Forms.Label();
             this.dgvTasks = new System.Windows.Forms.DataGridView();
             this.txtLog = new System.Windows.Forms.TextBox();
             this.btnSave = new System.Windows.Forms.Button();
@@ -52,6 +54,23 @@
             this.btnExecuteAll.TabIndex = 0;
             this.btnExecuteAll.Text = "すべて実行";
             this.btnExecuteAll.UseVisualStyleBackColor = true;
+            //
+            // btnStop（実行中だけ押せる。今の行が終わったら止める）
+            //
+            this.btnStop.Enabled = false;
+            this.btnStop.Location = new System.Drawing.Point(104, 20);
+            this.btnStop.Name = "btnStop";
+            this.btnStop.Size = new System.Drawing.Size(60, 24);
+            this.btnStop.TabIndex = 9;
+            this.btnStop.Text = "中止";
+            this.btnStop.UseVisualStyleBackColor = true;
+            //
+            // lblProgress（実行中の進み具合「n / 全件」）
+            //
+            this.lblProgress.Location = new System.Drawing.Point(820, 26);
+            this.lblProgress.Name = "lblProgress";
+            this.lblProgress.Size = new System.Drawing.Size(200, 12);
+            this.lblProgress.TabIndex = 10;
             // 
             // dgvTasks
             // 
@@ -74,7 +93,7 @@
             // 
             // btnSave
             // 
-            this.btnSave.Location = new System.Drawing.Point(110, 20);
+            this.btnSave.Location = new System.Drawing.Point(176, 20);
             this.btnSave.Name = "btnSave";
             this.btnSave.Size = new System.Drawing.Size(86, 24);
             this.btnSave.TabIndex = 3;
@@ -83,7 +102,7 @@
             // 
             // btnSaveAs
             // 
-            this.btnSaveAs.Location = new System.Drawing.Point(202, 20);
+            this.btnSaveAs.Location = new System.Drawing.Point(268, 20);
             this.btnSaveAs.Name = "btnSaveAs";
             this.btnSaveAs.Size = new System.Drawing.Size(110, 24);
             this.btnSaveAs.TabIndex = 4;
@@ -92,7 +111,7 @@
             //
             // btnCreateRestorePlan
             //
-            this.btnCreateRestorePlan.Location = new System.Drawing.Point(318, 20);
+            this.btnCreateRestorePlan.Location = new System.Drawing.Point(384, 20);
             this.btnCreateRestorePlan.Name = "btnCreateRestorePlan";
             this.btnCreateRestorePlan.Size = new System.Drawing.Size(100, 24);
             this.btnCreateRestorePlan.TabIndex = 8;
@@ -102,7 +121,7 @@
             // chkAutoRun
             //
             this.chkAutoRun.AutoSize = true;
-            this.chkAutoRun.Location = new System.Drawing.Point(440, 24);
+            this.chkAutoRun.Location = new System.Drawing.Point(506, 24);
             this.chkAutoRun.Name = "chkAutoRun";
             this.chkAutoRun.Size = new System.Drawing.Size(72, 16);
             this.chkAutoRun.TabIndex = 5;
@@ -113,7 +132,7 @@
             // 
             this.cmbProfiles.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.cmbProfiles.FormattingEnabled = true;
-            this.cmbProfiles.Location = new System.Drawing.Point(530, 22);
+            this.cmbProfiles.Location = new System.Drawing.Point(596, 22);
             this.cmbProfiles.Name = "cmbProfiles";
             this.cmbProfiles.Size = new System.Drawing.Size(200, 20);
             this.cmbProfiles.TabIndex = 6;
@@ -162,6 +181,8 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1282, 537);
+            this.Controls.Add(this.lblProgress);
+            this.Controls.Add(this.btnStop);
             this.Controls.Add(this.pnlUnsaved);
             this.Controls.Add(this.cmbProfiles);
             this.Controls.Add(this.chkAutoRun);
@@ -184,6 +205,8 @@
         #endregion
 
         private System.Windows.Forms.Button btnExecuteAll;
+        private System.Windows.Forms.Button btnStop;
+        private System.Windows.Forms.Label lblProgress;
         private System.Windows.Forms.DataGridView dgvTasks;
         private System.Windows.Forms.TextBox txtLog;
         private System.Windows.Forms.Button btnSave;

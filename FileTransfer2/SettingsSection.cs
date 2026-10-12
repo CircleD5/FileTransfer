@@ -75,7 +75,7 @@ namespace FileTransfer2
         [StringValidator(MinLength = 1)]
         public string DeployKeepFile => (string)this["DeployKeepFile"];
 
-        /// <summary>実行を禁止するパスの一覧ファイルの場所</summary>
+        /// <summary>どの処理でも触らない場所の一覧ファイルの場所</summary>
         [ConfigurationProperty("ForbiddenPathsFile", IsRequired = true, DefaultValue = "-")]
         [StringValidator(MinLength = 1)]
         public string ForbiddenPathsFile => (string)this["ForbiddenPathsFile"];

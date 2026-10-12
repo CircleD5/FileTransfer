@@ -127,11 +127,15 @@
     <Compile Include="AppConfigTests.cs" />
     <Compile Include="BackupRestoreTests.cs" />
     <Compile Include="RestorePlanTests.cs" />
+    <Compile Include="AvoidTests.cs" />
+    <Compile Include="DiskFullTests.cs" />
     <Compile Include="StartupTests.cs" />
+    <Compile Include="StopTests.cs" />
     <Compile Include="DeployTests.cs" />
     <Compile Include="E2ETests.cs" />
     <Compile Include="FileTransferEngineTests.cs" />
     <Compile Include="Helpers\AppDriver.cs" />
+    <Compile Include="Helpers\DiskFullFileSystem.cs" />
     <Compile Include="Helpers\TempConfigFiles.cs" />
     <Compile Include="LogFilesTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

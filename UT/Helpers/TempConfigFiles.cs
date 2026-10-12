@@ -91,7 +91,7 @@ namespace UT
         }
 
         /// <summary>
-        /// deploy_keep.txt を書き直す（1行に1つ）。
+        /// deploy_keep.txt を書き直す（1行に1つの絶対パス）。
         /// </summary>
         public void WriteDeployKeep(params string[] lines)
         {

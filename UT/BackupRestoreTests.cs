@@ -16,7 +16,7 @@ namespace UT
     {
         private const string Data = @"D:\BizAppData";                         // 業務データ
         private const string Root = @"D:\ReleaseBackup\v1.2.0";               // 退避先
-        private const string Snapshot = @"D:\ReleaseBackup\v1.2.0\D_BizAppData"; // Data の退避
+        private static readonly string Snapshot = Path.Combine(Root, FileTransferEngine.SnapshotName(Data)); // Data の退避
 
         private readonly TempConfigFiles _configFiles = new TempConfigFiles();
         private readonly AppConfig _config;
@@ -75,10 +75,127 @@ namespace UT
         }
 
         [Fact]
+        public void 退避_触らない場所は退避に入らない()
+        {
+            _configFiles.WriteForbiddenPaths($@"{Data}\sub");
+            var engine = new FileTransferEngine(new Mock<Action<string>>().Object, _configFiles.LoadConfig(), _fs);
+
+            engine.ProcessRow(TransferAction.Backup, Data, Root, TransferMode.BackupCopy, false, 1);
+
+            Assert.Equal("リリース前", Read($@"{Snapshot}\data.txt"));
+            Assert.False(_fs.Directory.Exists($@"{Snapshot}\sub"));
+        }
+
+        [Fact]
         public void 退避_退避先が退避するフォルダの中にある場合_エラーになる()
         {
             Assert.Throws<TransferException>(() =>
                 _engine.ProcessRow(TransferAction.Backup, Data, $@"{Data}\backup", TransferMode.BackupCopy, false, 1));
+        }
+
+        #endregion
+
+        #region 退避の名前とパスの長さ
+
+        /// <summary>
+        /// 事前チェックで使う、いちばん長くなる退避のフォルダ（復元のときに作る「〇〇.rolledback_日時_連番」）。
+        /// </summary>
+        private static readonly string LongestSnapshot = Snapshot + ".rolledback_yyyyMMddHHmmss_99";
+
+        /// <summary>
+        /// LongestSnapshot の下に置いたとき、パス全体がちょうど totalLength 文字になる相対パス（フォルダ1つ＋ファイル）。
+        /// </summary>
+        private static string RelativePathFor(int totalLength)
+        {
+            int nameLength = totalLength - (LongestSnapshot.Length + 1) - 101; // 101 ＝ フォルダ名100文字＋ \
+            return new string('a', 100) + "\\" + new string('b', nameLength);
+        }
+
+        [Fact]
+        public void 退避の名前_同じパスなら同じ名前で_大文字小文字と末尾の円記号は区別しない()
+        {
+            string name = FileTransferEngine.SnapshotName(@"D:\BizAppData");
+
+            Assert.Equal(name, FileTransferEngine.SnapshotName(@"d:\bizappdata\"));
+            Assert.NotEqual(name, FileTransferEngine.SnapshotName(@"D:\BizAppData2"));
+        }
+
+        [Fact]
+        public void 退避の名前_元のパスが長くても12文字()
+        {
+            string longPath = @"D:\" + string.Join(@"\", Enumerable.Repeat("very_long_folder_name", 10));
+
+            Assert.Equal(12, FileTransferEngine.SnapshotName(longPath).Length);
+        }
+
+        [Fact]
+        public void 退避_どのフォルダの退避かがpathファイルに残る()
+        {
+            Backup();
+
+            Assert.Equal(Data, Read(Snapshot + ".path"));
+        }
+
+        [Fact]
+        public void 退避_名前が別のフォルダの退避とぶつかっている場合_エラーになり何もしない()
+        {
+            // 同じ名前の退避が、別のフォルダ（D:\Other）のものとして記録されている
+            _fs.AddFile(Snapshot + ".path", new MockFileData(@"D:\Other"));
+
+            var ex = Assert.Throws<TransferException>(() => Backup());
+
+            Assert.Equal(Messages.Format(_config.Msg.Transfer.SnapshotNameConflict, Snapshot + ".path", @"D:\Other", Data), ex.Message);
+            Assert.False(_fs.Directory.Exists(Snapshot));
+        }
+
+        [Fact]
+        public void 退避_作るパスがちょうど上限の長さなら実行される()
+        {
+            string relative = RelativePathFor(259);
+            _fs.AddFile(Path.Combine(Data, relative), new MockFileData("深いファイル"));
+
+            Backup();
+
+            Assert.Equal("深いファイル", Read(Path.Combine(Snapshot, relative)));
+        }
+
+        [Fact]
+        public void 退避_作るパスが上限を超える場合_いちばん長いパスと超える文字数が出て_退避は作られない()
+        {
+            string relative = RelativePathFor(260);
+            _fs.AddFile(Path.Combine(Data, relative), new MockFileData("深いファイル"));
+
+            var ex = Assert.Throws<TransferException>(() => Backup());
+
+            Assert.Equal(Messages.Format(_config.Msg.Transfer.PathTooLong, 259, 1, LongestSnapshot + "\\" + relative), ex.Message);
+            Assert.False(_fs.Directory.Exists(Snapshot));
+        }
+
+        [Fact]
+        public void 退避_作るフォルダのパスが上限を超える場合_エラーになる()
+        {
+            // フォルダの上限は 247 文字（ファイルより短い）
+            string folder = new string('c', 248 - (LongestSnapshot.Length + 1));
+            _fs.AddDirectory(Path.Combine(Data, folder));
+
+            var ex = Assert.Throws<TransferException>(() => Backup());
+
+            Assert.Equal(Messages.Format(_config.Msg.Transfer.PathTooLong, 247, 1, LongestSnapshot + "\\" + folder), ex.Message);
+        }
+
+        [Fact]
+        public void 復元_戻す先に深いパスが増えていて上限を超える場合_エラーになり何も変えない()
+        {
+            Backup();
+            // リリース後に、深いパスのファイルが増えた（戻す直前の状態として退避できない）
+            string relative = RelativePathFor(260);
+            _fs.AddFile(Path.Combine(Data, relative), new MockFileData("リリース後に増えた"));
+            _fs.File.WriteAllText($@"{Data}\data.txt", "リリース後");
+
+            Assert.Throws<TransferException>(() => Restore());
+
+            Assert.Equal("リリース後", Read($@"{Data}\data.txt"));
+            Assert.Empty(_fs.Directory.GetDirectories(Root, FileTransferEngine.SnapshotName(Data) + ".rolledback_*"));
         }
 
         #endregion
@@ -98,7 +215,7 @@ namespace UT
             Assert.Equal("リリース前", Read($@"{Data}\data.txt"));
             Assert.False(_fs.File.Exists($@"{Data}\new.txt"));
             // 戻す前の状態（リリース後に増えたデータ）は rolledback に残っている
-            string rolledBack = _fs.Directory.GetDirectories(Root, "D_BizAppData.rolledback_*").Single();
+            string rolledBack = _fs.Directory.GetDirectories(Root, FileTransferEngine.SnapshotName(Data) + ".rolledback_*").Single();
             Assert.Equal("リリース後に増えた", Read(Path.Combine(rolledBack, "new.txt")));
         }
 
@@ -112,7 +229,7 @@ namespace UT
             Restore();
 
             Assert.True(_fs.File.Exists($@"{Data}\after.txt"));
-            Assert.Single(_fs.Directory.GetDirectories(Root, "D_BizAppData.rolledback_*"));
+            Assert.Single(_fs.Directory.GetDirectories(Root, FileTransferEngine.SnapshotName(Data) + ".rolledback_*"));
         }
 
         [Fact]

@@ -70,33 +70,6 @@ namespace UT
             Assert.True(mockFs.File.Exists(@"D:\DestDir\src.txt"));
         }
 
-        [Fact]
-        public void ProcessRow_禁止パスと完全一致する場合_例外になる()
-        {
-            using (var temp = new TempConfigFiles())
-            {
-                temp.WriteForbiddenPaths("# コメント", @"C:\Forbidden\", @"D:\Protected");
-                var config = temp.LoadConfig();
-
-                var mockFs = new MockFileSystem(new Dictionary<string, MockFileData>
-                {
-                    { @"C:\Forbidden\file.txt", new MockFileData("data") },
-                    { @"C:\Allowed\file.txt", new MockFileData("data") },
-                });
-                var engine = new FileTransferEngine(_mockLogger.Object, config, mockFs);
-
-                // 転送元が禁止パス（末尾の \ と大文字小文字は区別しない）
-                Assert.Throws<TransferException>(() =>
-                    engine.ProcessRow(TransferAction.Delete, @"c:\forbidden", "", TransferMode.DeleteAll, false, 1));
-                // 転送先が禁止パス
-                Assert.Throws<TransferException>(() =>
-                    engine.ProcessRow(TransferAction.Copy, @"C:\Allowed", @"D:\Protected\", TransferMode.FolderAsIs, false, 1));
-                // 配下のパスは禁止されない
-                engine.ProcessRow(TransferAction.Copy, @"C:\Forbidden\file.txt", @"D:\Out\", TransferMode.FolderAsIs, false, 1);
-                Assert.True(mockFs.File.Exists(@"D:\Out\file.txt"));
-            }
-        }
-
         #endregion
 
         #region 2. 単一ファイルの転送

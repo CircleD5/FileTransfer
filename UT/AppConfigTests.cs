@@ -193,6 +193,50 @@ namespace UT
 
         #endregion
 
+        #region forbidden_paths.txt / deploy_keep.txt（絶対パスの一覧）
+
+        [Fact]
+        public void パスの一覧_絶対パスが_そろえた形で読み込まれる()
+        {
+            using (var temp = new TempConfigFiles())
+            {
+                temp.WriteDeployKeep(
+                    "# コメント行は無視",
+                    "",
+                    "\"D:\\App\\Data\"",           // 前後の " は取り除く
+                    @"D:\App\Logs\",               // 末尾の \ は取り除く
+                    @"D:\App\Sub\..\Runtime",      // 「..」は実際に指す場所にそろえる
+                    @"\\server\share\App\Logs");   // ネットワークのパスも使える
+
+                var paths = temp.LoadConfig().DeployKeepPaths;
+
+                Assert.Equal(new[] { @"D:\App\Data", @"D:\App\Logs", @"D:\App\Runtime", @"\\server\share\App\Logs" }, paths);
+            }
+        }
+
+        [Theory]
+        [InlineData("Logs")]            // 相対パス
+        [InlineData("\\Logs")]          // ドライブのない「\」から始まるパス
+        [InlineData("C:Logs")]          // 「C:」の後に \ がない
+        [InlineData("D:\\App\\Da|ta")]  // パスに使えない文字
+        public void パスの一覧_絶対パスでない場合_ファイル名と行番号つきのエラーになる(string line)
+        {
+            using (var temp = new TempConfigFiles())
+            {
+                // 禁止パスと残すものの一覧は、同じ読み方をする
+                temp.WriteForbiddenPaths("# 1行目はコメント", line);
+                var ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
+                Assert.Equal(Messages.Format(temp.Msg.Config.PathListInvalid, temp.ForbiddenPath, 2, line), ex.Message);
+
+                temp.WriteForbiddenPaths();
+                temp.WriteDeployKeep("# 1行目はコメント", line);
+                ex = Assert.Throws<ConfigException>(() => temp.LoadConfig());
+                Assert.Equal(Messages.Format(temp.Msg.Config.PathListInvalid, temp.DeployKeepPath, 2, line), ex.Message);
+            }
+        }
+
+        #endregion
+
         #region messages.json
 
         [Fact]

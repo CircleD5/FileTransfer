@@ -1,0 +1,88 @@
+# FileTransfer2 の CI（.NET Framework 4.8 の WinForms）
+#
+#   scan ───────────────── NucBox（k3s の Runner、自動）: packages.config の脆弱性検査
+#   build-unit-test（手動）─ 作業用 PC（Windows の Runner）: MSBuild でビルド → 単体テスト → zip を成果物に
+#   ui-test（手動）──────── 作業用 PC（Windows の Runner）: MSBuild で Debug ビルド → UI テスト（E2E / Startup / Ui / Stop）
+#
+# なぜ手動か: .NET Framework は Windows でしかビルド・テストできない。作業用 PC は常駐していないので、
+# 自動で積むと GitLab が 1 時間で捨てる（stuck_pending_no_matching_runners）。手動ジョブは押すまで待たないので捨てられない。
+# build-unit-test は UI テストのクラスを -noclass で除外し、ui-test が -class でそれだけを動かす。
+#
+# 前提: CI/CD 変数 TRIVY_IMAGE、PC の Runner（タグ windows-gui）を C:\GitLab-Runner\start-runner.ps1 で起動していること
+
+stages: [scan, test]
+
+scan:
+  stage: scan
+  image:
+    name: $TRIVY_IMAGE
+    entrypoint: [""]
+  rules:
+    - if: $TRIVY_IMAGE
+  script:
+    - trivy fs --skip-version-check --exit-code 1 --severity CRITICAL --scanners vuln .
+
+build-unit-test:
+  stage: test
+  tags: [windows-gui]
+  when: manual
+  allow_failure: true          # PC が使えないときにパイプライン全体を失敗扱いにしない
+  manual_confirmation: |
+    ビルドと単体テストを作業用 PC で実行します。始める前に確認してください
+    1. 作業用 PC で GitLab Runner が起動している
+       （C:\GitLab-Runner\start-runner.ps1。「gitlab-runner (GUI tests)」のウィンドウがある）
+    2. 単体テストだけなので画面は操作しない（PC を使っていてもよい）。所要 1 分ほど
+  variables:
+    GIT_DEPTH: "10"
+  script:
+    - $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe"
+    - $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    - if (Test-Path $vswhere) { $found = & $vswhere -latest -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1; if ($found) { $msbuild = $found } }
+    - 'Write-Host "MSBuild: $msbuild"'
+    # packages.config の復元 → Release ビルド（アプリと UT の両方）
+    - '& $msbuild FileTransfer2.sln -t:Restore -p:RestorePackagesConfig=true -v:minimal -nologo; if ($LASTEXITCODE -ne 0) { exit 1 }'
+    - '& $msbuild FileTransfer2.sln -t:Build -p:Configuration=Release -v:minimal -nologo; if ($LASTEXITCODE -ne 0) { exit 1 }'
+    # 単体テスト（UI テストのクラスは除く）。結果は JUnit 形式で GitLab のテストタブに出す
+    - $xunit = (Get-ChildItem packages\xunit.runner.console.*\tools\net48\xunit.console.exe | Select-Object -First 1).FullName
+    - New-Item -ItemType Directory -Force test-results | Out-Null
+    - '& $xunit UT\bin\Release\UT.dll -noshadow -noclass UT.E2ETests -noclass UT.StartupTests -noclass UT.UiTests -noclass UT.StopTests -junit test-results\unit.xml; if ($LASTEXITCODE -ne 0) { exit 1 }'
+    # 配布用の zip（テストが通ったものだけ）
+    - Compress-Archive -Path FileTransfer2\bin\Release\* -DestinationPath "FileTransfer2-$env:CI_COMMIT_SHORT_SHA.zip" -Force
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - FileTransfer2-*.zip
+    reports:
+      junit: test-results/unit.xml
+
+# UI テスト（E2ETests / StartupTests / UiTests / StopTests）。exe を起動して UI Automation で操作する
+# AppDriver はキーボード・マウスを使わない（PostMessage 等で操作）ので、入力は奪わないがウィンドウは表示される
+ui-test:
+  stage: test
+  tags: [windows-gui]
+  when: manual
+  allow_failure: true
+  manual_confirmation: |
+    UI テストを作業用 PC で実行します。始める前に確認してください
+    1. 作業用 PC にログインしていて、GitLab Runner が起動している
+       （C:\GitLab-Runner\start-runner.ps1。「gitlab-runner (GUI tests)」のウィンドウがある）
+    2. 画面がロックされていない・スリープしない（ウィンドウが開いたり閉じたりする。所要 1〜2 分）
+    3. キーボード・マウスは奪わないが、テスト中に FileTransfer2 を手で起動しない
+  variables:
+    GIT_DEPTH: "10"
+  script:
+    - $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe"
+    - $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    - if (Test-Path $vswhere) { $found = & $vswhere -latest -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1; if ($found) { $msbuild = $found } }
+    - '& $msbuild FileTransfer2.sln -t:Restore -p:RestorePackagesConfig=true -v:minimal -nologo; if ($LASTEXITCODE -ne 0) { exit 1 }'
+    # UI テストは Debug 構成で動かす。テストの AppDriver が exe を FileTransfer2\bin\Debug\ から起動するため
+    - '& $msbuild FileTransfer2.sln -t:Build -p:Configuration=Debug -v:minimal -nologo; if ($LASTEXITCODE -ne 0) { exit 1 }'
+    - $xunit = (Get-ChildItem packages\xunit.runner.console.*\tools\net48\xunit.console.exe | Select-Object -First 1).FullName
+    - New-Item -ItemType Directory -Force test-results | Out-Null
+    - '& $xunit UT\bin\Debug\UT.dll -noshadow -class UT.E2ETests -class UT.StartupTests -class UT.UiTests -class UT.StopTests -junit test-results\ui.xml; if ($LASTEXITCODE -ne 0) { exit 1 }'
+  artifacts:
+    when: always
+    expire_in: 30 days
+    reports:
+      junit: test-results/ui.xml

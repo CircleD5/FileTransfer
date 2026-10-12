@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Abstractions;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace FileTransfer2
 {
@@ -33,6 +36,10 @@ namespace FileTransfer2
         private readonly Messages _msg;
         private readonly IFileSystem _fs; // テストでは偽物のファイルシステムに差し替える
 
+        // 今実行している行の番号と、その行で避けた「触らない場所」（ログを場所ごとに1回だけ出すため）。ProcessRow の最初で元に戻す
+        private int _lineNo;
+        private readonly HashSet<string> _avoided = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// ログの出力先・設定・ファイルシステムを受け取る。
         /// テストでは fileSystem に偽物（MockFileSystem）を渡し、本物のファイルに触れずに確かめる。
@@ -51,13 +58,18 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 1行分の処理を実行する。転送元・転送先を絶対パスにし、禁止パスと転送元があるかを確かめてから、
+        /// 1行分の処理を実行する。転送元・転送先を絶対パスにし、転送元があるかを確かめてから、
         /// 処理種別ごとの処理に振り分ける。失敗したら例外を投げる（TransferException の文言は、そのまま画面に出せる）。
+        /// 触らない場所（forbidden_paths.txt）は、どの処理でもエラーにせず避ける。転送元・転送先そのものが
+        /// 触らない場所なら、何もせずに終わる（ログには出る）。
         /// </summary>
         public void ProcessRow(TransferAction action, string src, string dest, TransferMode mode, bool addDate, int lineNo)
         {
+            _lineNo = lineNo;
+            _avoided.Clear();
+
             string srcPath = ResolvePath(src);
-            CheckNotForbidden(srcPath);
+            if (IsAvoided(srcPath)) return;
 
             bool isFolder = _fs.Directory.Exists(srcPath);
             if (!isFolder && !_fs.File.Exists(srcPath))
@@ -71,7 +83,7 @@ namespace FileTransfer2
             }
 
             string destPath = ResolvePath(dest);
-            CheckNotForbidden(destPath);
+            if (IsAvoided(destPath)) return;
 
             switch (action)
             {
@@ -93,21 +105,27 @@ namespace FileTransfer2
 
         #region リリース（配置・退避・復元）
         //
-        // 3つとも「退避先のフォルダ\対象フォルダのパスを1つの名前にしたもの」に退避を置く（例：D:\App → D_App）。
-        // 名前の付け方が同じなので、配置や退避で作った退避は、復元でそのまま戻せる。
+        // 3つとも「退避先のフォルダ\対象フォルダのパスから作ったハッシュ（12文字）」に退避を置く（例：D:\App → 3f9c2e1b7d04）。
+        // 同じパスからは必ず同じ名前になるので、配置や退避で作った退避は、復元でそのまま戻せる。
+        // 名前の長さが対象フォルダのパスの長さに関係なく一定なので、深いフォルダでもパスが長くなりすぎない。
         //
-        //   退避先\D_App\               … 退避（リリース前の状態）。一度作ったら上書きしない
-        //   退避先\D_App.done           … 配置の適用済みの印
-        //   退避先\D_App.restored       … 復元済みの印
-        //   退避先\D_App.rolledback_日時\ … 復元する直前の状態（リリース後に増えたデータを取り出せるように）
+        //   退避先\3f9c2e1b7d04\               … 退避（リリース前の状態）。一度作ったら上書きしない
+        //   退避先\3f9c2e1b7d04.path           … どのフォルダの退避か（元のパス。人が見るためと、名前がぶつかっていないかの確認用）
+        //   退避先\3f9c2e1b7d04.done           … 配置の適用済みの印
+        //   退避先\3f9c2e1b7d04.restored       … 復元済みの印
+        //   退避先\3f9c2e1b7d04.rolledback_日時\ … 復元する直前の状態（リリース後に増えたデータを取り出せるように）
+        //
+        // 本番に手を付けるのは、必ず退避（復元なら .rolledback）を作り終えてから。
+        // どこで止まっても退避はそろっているので、原因を取り除いて再実行すれば、正しい状態にできる。
+        // 触らない場所（forbidden_paths.txt）は、3つとも、退避にも入れず、消しも置きもしない。
 
         /// <summary>
-        /// 配置：本番フォルダを退避してから、新版で完全に入れ替える。
+        /// 配置：本番フォルダを退避してから、新版で入れ替える。deploy_keep.txt に書いたものは入れ替えず、その場に残す。
         /// 何度実行しても結果が同じになる（冪等）ように、次の順で行う。
         ///   1. 適用済みの印があれば何もしない
-        ///   2. 本番フォルダをまるごと退避する（すでに退避があれば、旧版を守るため退避し直さない）
-        ///   3. 新版を置く
-        ///   4. deploy_keep.txt に書いたものだけ、退避から戻す
+        ///   2. 本番フォルダを退避へコピーする（触らない場所は除く。すでに退避があれば、旧版を守るため退避し直さない）
+        ///   3. 消す予定のファイルを開いてみて、使用中や権限がないものがないかを確かめる
+        ///   4. 残すもの以外を消して、新版を置く（残すものの場所には置かない）
         ///   5. 適用済みの印を書く
         /// 転送元は「…\リリース番号\配置するフォルダ」の形にする（例：Release\v1.2.0\App）。親フォルダ名がリリース番号になる。
         /// 退避は BackupDir\リリース番号 に置く。
@@ -121,9 +139,13 @@ namespace FileTransfer2
             string backupDir = SnapshotPath(DeployBackupRoot(_config, releaseId), destPath);
             string doneMark = backupDir + DoneMarkSuffix;
 
-            // 配置先を退避（移動）すると、その中にある転送元や退避先まで一緒に動いてしまうため止める
+            // 配置先を退避すると、その中にある転送元や退避先まで一緒に退避されたり消えたりしてしまうため止める
             if (IsSamePath(srcPath, destPath) || IsInside(srcPath, destPath) || IsInside(destPath, srcPath) || IsInside(backupDir, destPath))
                 throw new TransferException(_msg.Transfer.Conflict);
+
+            // 別のフォルダの退避と名前がぶつかっていないか（ぶつかっていると、印も別のフォルダのものになるので、最初に確かめる）
+            _fs.Directory.CreateDirectory(_fs.Path.GetDirectoryName(backupDir));
+            CheckAndRecordSource(backupDir, destPath);
 
             // 1. 適用済みなら何もしない（2回目以降の実行で、本番やその後のログなどを書き換えないため）
             if (_fs.File.Exists(doneMark))
@@ -132,44 +154,51 @@ namespace FileTransfer2
                 return;
             }
 
-            // 2. 退避
+            // 残すもの：deploy_keep.txt のうち、この配置先の中にあるものだけを使う（配置先そのものや、外を指すものは無視）
+            List<string> keeps = _config.DeployKeepPaths.Where(keep => IsInside(keep, destPath)).ToList();
+            foreach (string keep in keeps)
+            {
+                _logger(Messages.Format(_msg.Transfer.DeployKept, lineNo, keep));
+            }
+
+            // 配置先の中の各パス（相対パス）を、退避するか・入れ替えるかで分ける
+            Func<string, bool> isBackedUp = relative => !IsAvoided(_fs.Path.Combine(destPath, relative));
+            Func<string, bool> isReplaced = relative =>
+            {
+                string path = _fs.Path.Combine(destPath, relative);
+                return !IsAvoided(path) && !IsUnderAny(path, keeps);
+            };
+
+            // 今の本番（退避される）と新しい版（あとで復元するときに、戻す直前の状態として退避される）の両方を確かめる。
+            // 配置のときに通っても、復元のときに長さで止まると切り戻せなくなるため、ここで止める
+            CheckPathLength(backupDir, isBackedUp, destPath, srcPath);
+
+            // 2. 退避（コピー。本番はまだ変えない）
             if (!_fs.Directory.Exists(backupDir))
             {
-                _fs.Directory.CreateDirectory(_fs.Path.GetDirectoryName(backupDir));
                 if (_fs.Directory.Exists(destPath))
-                    MoveFolderSafely(destPath, backupDir);
+                    CopyFolderSafely(destPath, backupDir + ".tmp", backupDir, isBackedUp);
                 else
                     _fs.Directory.CreateDirectory(backupDir); // 初めての配置：退避するものはないが、退避済みの印として空のフォルダを作る
                 _logger(Messages.Format(_msg.Transfer.DeployBackedUp, lineNo, backupDir));
             }
-            else if (_fs.Directory.Exists(destPath))
-            {
-                // 前回が途中で止まっていた（または「退避」で先に退避を作ってあった）場合：
-                // 旧版は退避にあるので、今の配置先を消して最初から置き直す
-                DeleteFolderTree(destPath);
-            }
 
-            // 3. 新版を置く
-            CopyFolder(srcPath, destPath);
-
-            // 4. 残すものを退避から戻す（本番にあったものだけ。退避は旧版のままなので、何度戻しても同じ結果になる）
-            foreach (string keep in _config.DeployKeepPaths)
+            // 新しい版を置くもの：入れ替えるものと、本番になかった残すもの（初めての配置など）。本番にあるかは、置く前に決めておく
+            List<string> existingKeeps = keeps.Where(keep => _fs.Directory.Exists(keep) || _fs.File.Exists(keep)).ToList();
+            Func<string, bool> isPlaced = relative =>
             {
-                string from = _fs.Path.Combine(backupDir, keep);
-                string to = _fs.Path.Combine(destPath, keep);
-                if (_fs.Directory.Exists(from))
-                {
-                    if (_fs.Directory.Exists(to)) DeleteFolderTree(to);
-                    CopyFolder(from, to);
-                }
-                else if (_fs.File.Exists(from))
-                {
-                    _fs.Directory.CreateDirectory(_fs.Path.GetDirectoryName(to));
-                    _fs.File.Copy(from, to, true);
-                }
-                else continue;
-                _logger(Messages.Format(_msg.Transfer.DeployKept, lineNo, keep));
+                string path = _fs.Path.Combine(destPath, relative);
+                return !IsAvoided(path) && !IsUnderAny(path, existingKeeps);
+            };
+
+            if (_fs.Directory.Exists(destPath))
+            {
+                // 3. 消す予定のファイルが、使用中や権限がないために消せない、ということがないか（退避はできているので、止まっても本番は無事）
+                CheckCanModify(destPath, isReplaced);
+                // 4. 残すもの以外を消す。前回が途中で止まっていた場合も、ここで置きかけのものが消える
+                DeleteContents(destPath, isReplaced);
             }
+            CopyFolder(srcPath, destPath, isPlaced);
 
             // 5. 適用済みの印（中身は人が見るためのメモ）と、配置の履歴（いつ・何を・どこへ・誰が）
             string record = $"{DateTime.Now:yyyy/MM/dd HH:mm:ss}\t{releaseId}\t{srcPath}\t{destPath}\t{Environment.UserName}@{Environment.MachineName}";
@@ -190,23 +219,28 @@ namespace FileTransfer2
                 throw new TransferException(_msg.Transfer.Conflict);
 
             string snapshot = SnapshotPath(backupRoot, srcPath);
+            _fs.Directory.CreateDirectory(backupRoot);
+            CheckAndRecordSource(snapshot, srcPath);
             if (_fs.Directory.Exists(snapshot))
             {
                 _logger(Messages.Format(_msg.Transfer.BackupExists, lineNo, snapshot));
                 return;
             }
 
-            _fs.Directory.CreateDirectory(backupRoot);
-            CopyFolderSafely(srcPath, snapshot);
+            // 触らない場所は、退避にも入れない
+            Func<string, bool> isBackedUp = relative => !IsAvoided(_fs.Path.Combine(srcPath, relative));
+            CheckPathLength(snapshot, isBackedUp, srcPath);
+            CopyFolderSafely(srcPath, snapshot + ".tmp", snapshot, isBackedUp);
             _logger(Messages.Format(_msg.Transfer.BackupSaved, lineNo, snapshot));
         }
 
         /// <summary>
-        /// 復元：退避（退避や配置で作ったもの）を、元の場所へ戻す。
+        /// 復元：退避（退避や配置で作ったもの）を、元の場所へ戻す。触らない場所（forbidden_paths.txt）には触らない。
         ///   1. 復元済みの印があれば何もしない
-        ///   2. 今の状態を「〇〇.rolledback_日時」に退避する（リリース後に増えたデータを取り出せるように）
-        ///   3. 退避を元の場所へコピーする（退避そのものは残るので、何度でも戻せる）
-        ///   4. 配置の適用済みの印を消し、復元済みの印を書く
+        ///   2. 今の状態を「〇〇.rolledback_日時」にコピーする（リリース後に増えたデータを取り出せるように。本番はまだ変えない）
+        ///   3. 消す予定のファイルを開いてみて、使用中や権限がないものがないかを確かめる
+        ///   4. 今の中身を消して、退避の中身をコピーして戻す（退避そのものは残るので、何度でも戻せる）
+        ///   5. 配置の適用済みの印を消し、復元済みの印を書く
         /// </summary>
         /// <param name="backupRoot">退避先のフォルダ（退避の転送先、または配置なら BackupDir\リリース番号）</param>
         private void Restore(string backupRoot, string targetPath, int lineNo)
@@ -218,6 +252,7 @@ namespace FileTransfer2
             string snapshot = SnapshotPath(backupRoot, targetPath);
             if (!_fs.Directory.Exists(snapshot))
                 throw new TransferException(Messages.Format(_msg.Transfer.RestoreNoBackup, snapshot));
+            CheckAndRecordSource(snapshot, targetPath);
 
             string restoredMark = snapshot + RestoredMarkSuffix;
             if (_fs.File.Exists(restoredMark))
@@ -226,15 +261,25 @@ namespace FileTransfer2
                 return;
             }
 
+            // 触らない場所は、戻す直前の状態の退避にも入れず、消しも戻しもしない（今の forbidden_paths.txt で決める）
+            Func<string, bool> isHandled = relative => !IsAvoided(_fs.Path.Combine(targetPath, relative));
+
+            // 今の戻す先（リリース後に深いフォルダが増えていることがある）を、戻す直前の状態として退避できるか
+            CheckPathLength(snapshot, isHandled, targetPath);
+
             if (_fs.Directory.Exists(targetPath))
             {
-                // 〇〇.rolledback_日時（同じ秒に2回復元しても名前がぶつからないよう、必要なら連番を付ける）
+                // 2. 〇〇.rolledback_日時（同じ秒に2回復元しても名前がぶつからないよう、必要なら連番を付ける）
                 string rolledBack = AppendDateToFolderName(snapshot + ".rolledback");
-                MoveFolderSafely(targetPath, rolledBack);
+                CopyFolderSafely(targetPath, snapshot + ".rolledback.tmp", rolledBack, isHandled);
                 _logger(Messages.Format(_msg.Transfer.RestoreRolledBack, lineNo, rolledBack));
-            }
 
-            CopyFolder(snapshot, targetPath);
+                // 3. 消せないファイルがないか（.rolledback はできているので、止まっても本番は無事）
+                CheckCanModify(targetPath, isHandled);
+                // 4. 今の中身を消す
+                DeleteContents(targetPath, isHandled);
+            }
+            CopyFolder(snapshot, targetPath, isHandled);
 
             DeleteFileIfExists(snapshot + DoneMarkSuffix); // 配置し直せるように、適用済みの印を消す
             _fs.File.WriteAllText(restoredMark, $"{DateTime.Now:yyyy/MM/dd HH:mm:ss}\t{snapshot}\t{targetPath}\t{Environment.UserName}@{Environment.MachineName}");
@@ -243,6 +288,13 @@ namespace FileTransfer2
 
         private const string DoneMarkSuffix = ".done";
         private const string RestoredMarkSuffix = ".restored";
+        private const string SourcePathSuffix = ".path";
+
+        // Windows のパスの長さの上限（長いパスを有効にしていない、ふつうの設定の場合）
+        private const int MaxFilePathLength = 259;   // ファイル
+        private const int MaxFolderPathLength = 247; // フォルダ（中に短い名前のファイルを置ける余地を残す決まり）
+        // 退避の名前に付く、いちばん長いもの（復元のときの「〇〇.rolledback_日時_連番」。連番は2桁まで見込む）
+        private const string LongestSuffix = ".rolledback_yyyyMMddHHmmss_99";
         public const string DeployHistoryFile = "deploy_history.log";
 
         /// <summary>
@@ -268,7 +320,75 @@ namespace FileTransfer2
         /// </summary>
         private string SnapshotPath(string backupRoot, string targetPath)
         {
-            return _fs.Path.Combine(backupRoot, ToFolderName(targetPath));
+            return _fs.Path.Combine(backupRoot, SnapshotName(targetPath));
+        }
+
+        /// <summary>
+        /// 対象フォルダのパスから、退避の名前（SHA-256 の先頭12文字）を作る。
+        /// 同じパスからは必ず同じ名前になる（大文字・小文字と、末尾の \ の違いは同じパスとみなす）。
+        /// </summary>
+        public static string SnapshotName(string targetFullPath)
+        {
+            string normalized = targetFullPath.TrimEnd('\\').ToUpperInvariant();
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(normalized));
+                return BitConverter.ToString(hash).Replace("-", "").Substring(0, 12).ToLowerInvariant();
+            }
+        }
+
+        /// <summary>
+        /// 退避の隣に「〇〇.path」を書き、どのフォルダの退避かを残す。
+        /// すでにあって別のフォルダが書かれていたら、名前がぶつかっているので止める（別のフォルダの退避で上書き・復元しないため）。
+        /// </summary>
+        private void CheckAndRecordSource(string snapshot, string targetPath)
+        {
+            string pathFile = snapshot + SourcePathSuffix;
+            if (!_fs.File.Exists(pathFile))
+            {
+                _fs.File.WriteAllText(pathFile, targetPath);
+                return;
+            }
+
+            string recorded = _fs.File.ReadAllText(pathFile).Trim();
+            if (!IsSamePath(recorded, targetPath))
+                throw new TransferException(Messages.Format(_msg.Transfer.SnapshotNameConflict, pathFile, recorded, targetPath));
+        }
+
+        /// <summary>
+        /// 退避や復元で作るパスが、Windows のパスの長さの上限に収まるかを、作り始める前に確かめる。
+        /// folders の中身を、退避の名前でいちばん長くなるもの（〇〇.rolledback_日時_連番）の下に置いたとして計算する。
+        /// 上限を超えるものがあれば、いちばん長いパスと、何文字超えるかを書いて止める。
+        /// </summary>
+        /// <param name="snapshot">退避のフォルダ（退避先\ハッシュ）</param>
+        /// <param name="include">退避されるものか（相対パスを受け取る）。「退避しない」ものは計算に入れない</param>
+        /// <param name="folders">退避されるフォルダ（ないものは飛ばす。初めての配置など）</param>
+        private void CheckPathLength(string snapshot, Func<string, bool> include, params string[] folders)
+        {
+            string longestRoot = snapshot + LongestSuffix;
+
+            // 作ることになるパスと、それぞれの上限（退避のフォルダ自体も含める）
+            var planned = new List<(string Path, int Limit)> { (longestRoot, MaxFolderPathLength) };
+            foreach (string folder in folders)
+            {
+                if (!_fs.Directory.Exists(folder)) continue;
+                foreach (string dir in _fs.Directory.GetDirectories(folder, "*", SearchOption.AllDirectories))
+                {
+                    string relative = GetRelativePath(folder, dir);
+                    if (include(relative)) planned.Add((longestRoot + "\\" + relative, MaxFolderPathLength));
+                }
+                foreach (string file in _fs.Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
+                {
+                    string relative = GetRelativePath(folder, file);
+                    if (include(relative)) planned.Add((longestRoot + "\\" + relative, MaxFilePathLength));
+                }
+            }
+
+            // いちばん上限を超えているもの（超えていなければ、いちばん余裕がないもの）
+            var worst = planned.OrderByDescending(p => p.Path.Length - p.Limit).First();
+            int over = worst.Path.Length - worst.Limit;
+            if (over > 0)
+                throw new TransferException(Messages.Format(_msg.Transfer.PathTooLong, worst.Limit, over, worst.Path));
         }
 
         /// <summary>
@@ -282,55 +402,104 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// フォルダをまるごと別の場所へ移す。
-        /// 同じドライブなら「移動」（一瞬で終わり、途中で止まることがない）。
-        /// 別のドライブは移動できないので、CopyFolderSafely でコピーしてから元を消す。
+        /// path が触らない場所（forbidden_paths.txt に書いた場所か、その中）なら true。どの処理でも、true のものには触らない。
+        /// 今の行で初めて当たった触らない場所は、ログに1行出す（ファイルごとに出すと、ログがとても長くなるため）。
         /// </summary>
-        private void MoveFolderSafely(string from, string to)
+        private bool IsAvoided(string path)
         {
-            bool sameDrive = string.Equals(_fs.Path.GetPathRoot(from), _fs.Path.GetPathRoot(to), StringComparison.OrdinalIgnoreCase);
-            if (sameDrive)
+            foreach (string forbidden in _config.ForbiddenPaths)
             {
-                _fs.Directory.Move(from, to);
-                return;
+                if (IsSamePath(path, forbidden) || IsInside(path, forbidden))
+                {
+                    if (_avoided.Add(forbidden)) _logger(Messages.Format(_msg.Transfer.Avoided, _lineNo, forbidden));
+                    return true;
+                }
             }
-            CopyFolderSafely(from, to);
-            DeleteFolderTree(from);
+            return false;
         }
 
         /// <summary>
-        /// フォルダをまるごとコピーする。いったん「〇〇.tmp」という名前でコピーし、最後までコピーできてから正式な名前に変える。
-        /// 途中で止まっても正式な名前のフォルダはできていないので、再実行したときに「退避済み」と誤解することがない。
+        /// path が folders のどれかか、その中にあれば true。
         /// </summary>
-        private void CopyFolderSafely(string from, string to)
+        private static bool IsUnderAny(string path, IEnumerable<string> folders)
         {
-            string tempDir = to + ".tmp";
+            return folders.Any(folder => IsSamePath(path, folder) || IsInside(path, folder));
+        }
+
+        /// <summary>
+        /// from の中身（include が true のもの）を、いったん tempDir にコピーし、最後までコピーできてから to という名前に変える。
+        /// 途中で止まっても正式な名前のフォルダはできていないので、再実行したときに「退避済み」と誤解することがない。
+        /// 再実行したときに前回の tempDir が残っていれば、消してからコピーし直す。
+        /// </summary>
+        private void CopyFolderSafely(string from, string tempDir, string to, Func<string, bool> include)
+        {
             if (_fs.Directory.Exists(tempDir)) DeleteFolderTree(tempDir); // 前回のコピーが途中で止まっていた
-            CopyFolder(from, tempDir);
+            CopyFolder(from, tempDir, include);
             _fs.Directory.Move(tempDir, to); // 同じフォルダの中なので名前の変更だけで済む
         }
 
         /// <summary>
-        /// パスをフォルダ名に使える1つの名前にする（例：C:\App → C_App、\\server\share\App → server_share_App）。
+        /// from の中身のうち、include が true のもの（相対パスで判断する）を、to へコピーする（同じ名前のファイルは上書き）。
         /// </summary>
-        private static string ToFolderName(string path)
-        {
-            return path.TrimEnd('\\').Replace(":", "").Replace('\\', '_').TrimStart('_');
-        }
-
-        /// <summary>
-        /// フォルダの中身を、別のフォルダへコピーする（同じ名前のファイルは上書き）。
-        /// </summary>
-        private void CopyFolder(string from, string to)
+        private void CopyFolder(string from, string to, Func<string, bool> include)
         {
             _fs.Directory.CreateDirectory(to);
             foreach (string dir in _fs.Directory.GetDirectories(from, "*", SearchOption.AllDirectories))
             {
-                _fs.Directory.CreateDirectory(_fs.Path.Combine(to, GetRelativePath(from, dir)));
+                string relative = GetRelativePath(from, dir);
+                if (include(relative)) _fs.Directory.CreateDirectory(_fs.Path.Combine(to, relative));
             }
             foreach (string file in _fs.Directory.GetFiles(from, "*", SearchOption.AllDirectories))
             {
-                _fs.File.Copy(file, _fs.Path.Combine(to, GetRelativePath(from, file)), true);
+                string relative = GetRelativePath(from, file);
+                if (!include(relative)) continue;
+                string destFile = _fs.Path.Combine(to, relative);
+                // 含めないフォルダの中に、含めるものがある場合（近い項目の種類が違う）に備えて、親フォルダを作っておく
+                _fs.Directory.CreateDirectory(_fs.Path.GetDirectoryName(destFile));
+                _fs.File.Copy(file, destFile, true);
+            }
+        }
+
+        /// <summary>
+        /// folder の中身のうち、remove が true のもの（相対パスで判断する）を消す。folder 自体は残す。
+        /// フォルダは、中が空になったものだけを消す（残すものが入っているフォルダは消さない）。
+        /// </summary>
+        private void DeleteContents(string folder, Func<string, bool> remove)
+        {
+            foreach (string file in _fs.Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
+            {
+                if (remove(GetRelativePath(folder, file))) ForceDeleteFile(file);
+            }
+            // 深いフォルダから順に消す（親より先に子を空にするため）
+            foreach (string dir in _fs.Directory.GetDirectories(folder, "*", SearchOption.AllDirectories).OrderByDescending(dir => dir.Length))
+            {
+                bool isEmpty = !_fs.Directory.EnumerateFileSystemEntries(dir).Any();
+                if (isEmpty && remove(GetRelativePath(folder, dir))) _fs.Directory.Delete(dir);
+            }
+        }
+
+        /// <summary>
+        /// 消す予定のファイル（remove が true のもの）を、実際に消す前にすべて開いてみる。中身も更新日時も変えない。
+        /// ほかのプログラムが使用中のものや、書き換える権限がないものがあれば、どのファイルか・なぜかを書いて止める。
+        /// （開けるかどうかは、アクセス権を読んで判断するより、実際に開いてみる方が簡単で正確）
+        /// </summary>
+        private void CheckCanModify(string folder, Func<string, bool> remove)
+        {
+            foreach (string file in _fs.Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
+            {
+                if (!remove(GetRelativePath(folder, file))) continue;
+
+                // 読み取り専用のファイルは、消すときに属性を外すので、ほかのプログラムが使っていないかだけを確かめる
+                FileAccess access = FileAccess.ReadWrite;
+                if (_fs.File.GetAttributes(file).HasFlag(FileAttributes.ReadOnly)) access = FileAccess.Read;
+                try
+                {
+                    using (_fs.File.Open(file, FileMode.Open, access, FileShare.None)) { }
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    throw new TransferException(Messages.Format(_msg.Transfer.CannotModify, file, ex.Message));
+                }
             }
         }
 
@@ -356,6 +525,7 @@ namespace FileTransfer2
             // 同じファイルに移動すると「上書きのための削除」で元ファイルが消えてしまうため止める
             if (IsSamePath(srcPath, destFile))
                 throw new TransferException(_msg.Transfer.SamePath);
+            if (IsAvoided(destFile)) return;
 
             if (_fs.File.Exists(destFile))
                 _logger(Messages.Format(_msg.Transfer.Overwrite, lineNo, _fs.Path.GetFileName(destFile)));
@@ -388,6 +558,7 @@ namespace FileTransfer2
             // 自分自身の中へコピーすると終わらなくなるため止める
             if (IsSamePath(targetDir, srcPath) || IsInside(targetDir, srcPath))
                 throw new TransferException(_msg.Transfer.Conflict);
+            if (IsAvoided(targetDir)) return;
 
             // 「親フォルダを含めずに転送」のときだけ、日付はファイル名に付ける
             bool addDateToFiles = mode == TransferMode.ExtractContents && addDate;
@@ -395,26 +566,42 @@ namespace FileTransfer2
             _fs.Directory.CreateDirectory(targetDir);
             foreach (string dir in _fs.Directory.GetDirectories(srcPath, "*", SearchOption.AllDirectories))
             {
-                _fs.Directory.CreateDirectory(_fs.Path.Combine(targetDir, GetRelativePath(srcPath, dir)));
+                string targetSubDir = _fs.Path.Combine(targetDir, GetRelativePath(srcPath, dir));
+                // 触らない場所は、転送元・転送先のどちらにあっても飛ばす
+                if (IsAvoided(dir) || IsAvoided(targetSubDir)) continue;
+                _fs.Directory.CreateDirectory(targetSubDir);
             }
 
             foreach (string file in _fs.Directory.GetFiles(srcPath, "*", SearchOption.AllDirectories))
             {
                 string targetFile = _fs.Path.Combine(targetDir, GetRelativePath(srcPath, file));
+                if (IsAvoided(file) || IsAvoided(targetFile)) continue;
+
                 if (addDateToFiles)
                     targetFile = AppendDateToFileName(targetFile);
                 else if (_fs.File.Exists(targetFile))
                     _logger(Messages.Format(_msg.Transfer.Overwrite, lineNo, _fs.Path.GetFileName(targetFile)));
 
+                // 触らない場所の中のフォルダを飛ばしたときに備えて、親フォルダを作っておく
+                _fs.Directory.CreateDirectory(_fs.Path.GetDirectoryName(targetFile));
                 CopyOrMoveFile(action, file, targetFile);
             }
 
-            // 移動の場合、中身はすべて移し終えているので、空になった転送元フォルダを消す
-            if (action == TransferAction.Move)
+            // 移動の場合、空になった転送元のフォルダを消す。
+            // 触らない場所のために残ったファイルがあれば、そのフォルダ（と転送元のフォルダ）は残る
+            if (action == TransferAction.Move) DeleteEmptyFolders(srcPath);
+        }
+
+        /// <summary>
+        /// folder の中の空のフォルダを深い順に消し、最後に folder 自体も空なら消す。触らない場所は消さない。
+        /// </summary>
+        private void DeleteEmptyFolders(string folder)
+        {
+            foreach (string dir in _fs.Directory.GetDirectories(folder, "*", SearchOption.AllDirectories).OrderByDescending(dir => dir.Length))
             {
-                DeleteSubFolders(srcPath);
-                _fs.Directory.Delete(srcPath);
+                if (!IsAvoided(dir) && !_fs.Directory.EnumerateFileSystemEntries(dir).Any()) _fs.Directory.Delete(dir);
             }
+            if (!_fs.Directory.EnumerateFileSystemEntries(folder).Any()) _fs.Directory.Delete(folder);
         }
 
         /// <summary>
@@ -464,20 +651,25 @@ namespace FileTransfer2
 
         /// <summary>
         /// フォルダを、モード（丸ごと削除・親フォルダのみ残す・ファイルのみ削除）に合わせて消す。
+        /// 触らない場所は残す（その場所が入っているフォルダも、空にならないので残る）。
         /// </summary>
         private void DeleteFolder(string folderPath, TransferMode mode)
         {
+            Func<string, bool> isDeleted = relative => !IsAvoided(_fs.Path.Combine(folderPath, relative));
             switch (mode)
             {
                 case TransferMode.DeleteAll:
-                    DeleteFolderTree(folderPath);
+                    DeleteContents(folderPath, isDeleted);
+                    if (!_fs.Directory.EnumerateFileSystemEntries(folderPath).Any()) _fs.Directory.Delete(folderPath);
                     break;
                 case TransferMode.DeleteKeepParent:
-                    DeleteAllFiles(folderPath);
-                    DeleteSubFolders(folderPath);
+                    DeleteContents(folderPath, isDeleted);
                     break;
                 case TransferMode.DeleteFilesOnly:
-                    DeleteAllFiles(folderPath);
+                    foreach (string file in _fs.Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories))
+                    {
+                        if (isDeleted(GetRelativePath(folderPath, file))) ForceDeleteFile(file);
+                    }
                     break;
                 default:
                     throw new TransferException(_msg.Input.ModeInvalid);
@@ -543,18 +735,6 @@ namespace FileTransfer2
             if (trimmed.Length == 0)
                 throw new TransferException(_msg.Transfer.PathEmpty);
             return _fs.Path.GetFullPath(_config.GetFullPath(trimmed));
-        }
-
-        /// <summary>
-        /// forbidden_paths.txt に書かれたパスと完全一致したら止める。
-        /// </summary>
-        private void CheckNotForbidden(string fullPath)
-        {
-            foreach (string forbidden in _config.ForbiddenPaths)
-            {
-                if (IsSamePath(fullPath, ResolvePath(forbidden)))
-                    throw new TransferException(Messages.Format(_msg.Transfer.ForbiddenPath, fullPath));
-            }
         }
 
         /// <summary>

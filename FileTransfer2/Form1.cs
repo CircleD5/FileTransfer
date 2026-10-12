@@ -24,6 +24,7 @@ namespace FileTransfer2
         private bool _isDirty = false;     // 未保存の変更があるか
         private bool _isLoading = false;   // 一覧を読み込み中か（読み込みによる変更は「未保存」にしない）
         private bool _isRunning = false;   // 処理を実行中か（実行中は画面を操作できなくする）
+        private bool _isStopRequested = false; // 実行中に「中止」が押されたか（次の行に進む前に確かめて止める）
         private string _currentProfile = ""; // 開いているプロファイル名（"" は未選択）
         private bool _isSelectingByCode = false; // プログラムがコンボの選択を変えている最中か（そのときは読み込まない）
         private string _pendingProfile = null;   // 未保存の確認の帯で「破棄して読み込む」を押したときに読み込むプロファイル
@@ -47,6 +48,7 @@ namespace FileTransfer2
             SetupDataGridView();
 
             btnExecuteAll.Click += btnExecuteAll_Click;
+            btnStop.Click += btnStop_Click;
             btnSave.Click += btnSave_Click;
             btnSaveAs.Click += btnSaveAs_Click;
             btnCreateRestorePlan.Click += btnCreateRestorePlan_Click;
@@ -79,6 +81,7 @@ namespace FileTransfer2
         private void ApplyTexts()
         {
             btnExecuteAll.Text = _msg.Ui.BtnExecuteAll;
+            btnStop.Text = _msg.Ui.BtnStop;
             btnSave.Text = _msg.Ui.BtnSave;
             btnSaveAs.Text = _msg.Ui.BtnSaveAs;
             btnCreateRestorePlan.Text = _msg.Ui.BtnCreateRestorePlan;
@@ -483,11 +486,15 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 実行中は、一覧・ボタン・プロファイル切替・自動処理をすべて操作できなくする。
+        /// 実行中は、一覧・ボタン・プロファイル切替・自動処理をすべて操作できなくする。「中止」だけは実行中に押せる。
+        /// 実行を始めるたびに「中止」の受付を元に戻し、終わったら進み具合の表示を消す。
         /// </summary>
         private void SetRunning(bool isRunning)
         {
             _isRunning = isRunning;
+            _isStopRequested = false;
+            btnStop.Enabled = isRunning;
+            if (!isRunning) lblProgress.Text = "";
             dgvTasks.Enabled = !isRunning;
             btnExecuteAll.Enabled = !isRunning;
             btnSave.Enabled = !isRunning;
@@ -815,10 +822,26 @@ namespace FileTransfer2
         #region 実行
 
         /// <summary>
+        /// 実行の結果。
+        /// </summary>
+        private enum RunResult
+        {
+            /// <summary>全部成功した</summary>
+            Succeeded,
+            /// <summary>入力エラーか失敗があり、そこで止めた</summary>
+            Failed,
+            /// <summary>「中止」が押されたので、次の行に進む前に止めた</summary>
+            Stopped,
+        }
+
+        /// <summary>
         /// 「すべて実行」：一覧の行を上から順に実行する。実行中は画面を操作できなくする。
         /// </summary>
         private async void btnExecuteAll_Click(object sender, EventArgs e)
         {
+            // ボタンは実行中は押せないが、2回続けて押したときのクリックが残っていた場合などに備えて、実行中なら何もしない
+            if (_isRunning) return;
+
             CommitGridEdit();
             List<DataGridViewRow> rows = GetTaskRows();
             foreach (DataGridViewRow row in rows) SetStatus(row, _msg.Status.Wait);
@@ -833,6 +856,9 @@ namespace FileTransfer2
         /// </summary>
         private async Task ExecuteRowAsync(DataGridViewRow row)
         {
+            // 実行中は一覧を操作できないが、念のため、実行中なら何もしない（2つの実行が同時に動かないように）
+            if (_isRunning) return;
+
             CommitGridEdit();
             SetRunning(true);
             try { await RunPlanAsync(new[] { ReadTask(row) }, row.Index + 1, (index, status) => SetStatus(row, status)); }
@@ -840,12 +866,25 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 処理を上から順に実行する。入力エラーや失敗があれば、そこで止める。全部成功したら true。
+        /// 「中止」：今の行が終わったら止める（行の途中では止めない。止めた後の状態は、失敗で止まったときと同じ）。
+        /// 何度押しても同じ。実行が終わった直後に押された場合も、何もしない。
+        /// </summary>
+        private void btnStop_Click(object sender, EventArgs e)
+        {
+            if (!_isRunning || _isStopRequested) return;
+
+            _isStopRequested = true;
+            btnStop.Enabled = false; // 受け付けたことが分かるように、もう押せなくする
+            WriteLog(_msg.Run.StopRequested);
+        }
+
+        /// <summary>
+        /// 処理を上から順に実行する。入力エラーや失敗があれば、そこで止める。「中止」が押されたら、次の行に進む前に止める。
         /// 一覧からの実行・個別実行・自動処理で共通。
         /// </summary>
         /// <param name="firstLineNo">1件目の行番号（ログの「n行目」に使う）</param>
         /// <param name="setStatus">各行の状態（処理中・完了など）を受け取る処理。画面に出さないなら null。</param>
-        private async Task<bool> RunPlanAsync(IList<TransferTask> tasks, int firstLineNo, Action<int, string> setStatus)
+        private async Task<RunResult> RunPlanAsync(IList<TransferTask> tasks, int firstLineNo, Action<int, string> setStatus)
         {
             WriteLog(_msg.Run.RunStart);
             WriteExecutor();
@@ -853,12 +892,25 @@ namespace FileTransfer2
             // setStatus が null のとき（自動処理）は、行の状態を画面に出さない
             bool showStatus = setStatus != null;
 
-            bool succeeded = true;
+            RunResult result = RunResult.Succeeded;
             for (int i = 0; i < tasks.Count; i++)
             {
+                if (_isStopRequested)
+                {
+                    // 中止：ここから後の行は「未実行」にして止める（前の行は最後まで終わっている）
+                    if (showStatus)
+                    {
+                        for (int j = i; j < tasks.Count; j++) setStatus(j, _msg.Status.Unexec);
+                    }
+                    WriteLog(Messages.Format(_msg.Run.Stopped, firstLineNo + i));
+                    result = RunResult.Stopped;
+                    break;
+                }
+
+                lblProgress.Text = Messages.Format(_msg.Ui.ProgressFormat, i + 1, tasks.Count);
                 if (showStatus) setStatus(i, _msg.Status.Proc);
 
-                succeeded = await RunTaskAsync(tasks[i], firstLineNo + i);
+                bool succeeded = await RunTaskAsync(tasks[i], firstLineNo + i);
 
                 if (showStatus)
                 {
@@ -874,13 +926,14 @@ namespace FileTransfer2
                         for (int j = i + 1; j < tasks.Count; j++) setStatus(j, _msg.Status.Unexec);
                     }
                     WriteLog(_msg.Run.RowAbort);
+                    result = RunResult.Failed;
                     break;
                 }
                 if (_config.RowDelayMs > 0 && i < tasks.Count - 1) await Task.Delay(_config.RowDelayMs);
             }
 
             WriteLog(_msg.Run.RunEnd);
-            return succeeded;
+            return result;
         }
 
         /// <summary>
@@ -973,12 +1026,19 @@ namespace FileTransfer2
                     }
 
                     WriteLog(Messages.Format(_msg.AutoRun.Detect, Path.GetFileName(planPath)));
-                    bool succeeded;
+                    RunResult result;
                     SetRunning(true);
-                    try { succeeded = await RunPlanFileAsync(planPath); }
+                    try { result = await RunPlanFileAsync(planPath); }
                     finally { SetRunning(false); }
 
-                    MovePlanFile(planPath, succeeded);
+                    // 中止した計画は、最後まで終わっていないので Error へ移す（Plan に残すと、次の機会にまた実行されてしまう）
+                    MovePlanFile(planPath, result == RunResult.Succeeded);
+                    if (result == RunResult.Stopped)
+                    {
+                        // 中止が押されたら、ほかの計画ファイルも実行せず、自動処理を止める（チェックを外す）
+                        chkAutoRun.Checked = false;
+                        break;
+                    }
                 }
             }
             catch (Exception ex)
@@ -992,9 +1052,9 @@ namespace FileTransfer2
         }
 
         /// <summary>
-        /// 自動処理：計画ファイル1つを読み込んで実行する。読み込めなかったとき・失敗したときは false。
+        /// 自動処理：計画ファイル1つを読み込んで実行する。読み込めなかったときは Failed。
         /// </summary>
-        private async Task<bool> RunPlanFileAsync(string planPath)
+        private async Task<RunResult> RunPlanFileAsync(string planPath)
         {
             List<TransferTask> tasks;
             try
@@ -1004,7 +1064,7 @@ namespace FileTransfer2
             catch (Exception ex)
             {
                 WriteLog(Messages.Format(_msg.AutoRun.Error, ex.Message));
-                return false;
+                return RunResult.Failed;
             }
             // 自動処理は一覧を使わないので、行の状態は画面に出さない
             return await RunPlanAsync(tasks, 1, null);
