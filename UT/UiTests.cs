@@ -132,44 +132,6 @@ namespace UT
         }
 
         [Fact]
-        public void 復元用を作成_未保存のときは作らず_保存を促す()
-        {
-            _app.SetRow(0, TransferAction.Backup, @"D:\BizAppData", @"D:\ReleaseBackup\v1");
-
-            string result = _app.CreateRestorePlan();
-
-            Assert.Contains(_app.Msg.Profile.RestorePlanNeedSave, result);
-            Assert.Empty(System.IO.Directory.GetFiles(_app.Config.ProfilesDir));
-        }
-
-        [Fact]
-        public void 復元用を作成_戻せない処理が混ざっていると作らない()
-        {
-            _app.SetRow(0, TransferAction.Backup, @"D:\BizAppData", @"D:\ReleaseBackup\v1");
-            _app.SetRow(1, TransferAction.Copy, @"C:\a.txt", @"D:\out\");
-            _app.SaveAs(System.IO.Path.Combine(_app.Config.ProfilesDir, "Mixed.tsv"));
-
-            string result = _app.CreateRestorePlan();
-
-            Assert.Contains(_app.Msg.Profile.RestorePlanNotCreated, result);
-            Assert.False(System.IO.File.Exists(System.IO.Path.Combine(_app.Config.ProfilesDir, "Mixed" + _app.Msg.Profile.RestorePlanSuffix + ".tsv")));
-        }
-
-        [Fact]
-        public void 復元用を作成した後でプロファイルを保存し直すと_作り直しを促すログが出る()
-        {
-            _app.SetRow(0, TransferAction.Backup, @"D:\BizAppData", @"D:\ReleaseBackup\v1");
-            string profilePath = System.IO.Path.Combine(_app.Config.ProfilesDir, "Release.tsv");
-            _app.SaveAs(profilePath);
-            _app.CreateRestorePlan();
-
-            _app.Save(); // 上書き保存
-
-            string restoreFile = "Release" + _app.Msg.Profile.RestorePlanSuffix + ".tsv";
-            _app.WaitUntil(() => _app.Log.Contains(Messages.Format(_app.Msg.Profile.RestorePlanMayBeStale, restoreFile)), "作り直しを促すログが出ませんでした。");
-        }
-
-        [Fact]
         public void コンボで選ぶと_すぐ読み込まれる()
         {
             OpenUiTestProfile(editAfterSave: false);

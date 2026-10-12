@@ -85,6 +85,8 @@ namespace UT
             int endCount = CountInLog(Msg.Run.RunEnd);
             Invoke(GetById("btnExecuteAll"));
             WaitUntil(() => CountInLog(Msg.Run.RunEnd) > endCount, "実行が終わりませんでした。");
+            // 実行が終わった後の片付け（復元用の計画の保存など）まで終わると、ボタンが押せるようになる
+            WaitUntil(() => IsExecuteAllEnabled, "実行の後の片付けが終わりませんでした。");
         }
 
         /// <summary>
@@ -96,7 +98,11 @@ namespace UT
         /// <summary>
         /// ログの「実行が終わりました」が count 回になるまで待つ（StartExecuteAll で始めた実行の終わりを待つ）。
         /// </summary>
-        public void WaitForRunEnd(int count) => WaitUntil(() => CountInLog(Msg.Run.RunEnd) >= count, "実行が終わりませんでした。");
+        public void WaitForRunEnd(int count)
+        {
+            WaitUntil(() => CountInLog(Msg.Run.RunEnd) >= count, "実行が終わりませんでした。");
+            WaitUntil(() => IsExecuteAllEnabled, "実行の後の片付けが終わりませんでした。");
+        }
 
         /// <summary>「中止」を押す。</summary>
         public void Stop() => Invoke(GetById("btnStop"));
@@ -182,17 +188,6 @@ namespace UT
         {
             Invoke(GetById("btnSave"));
             AnswerDialog(yes: true);
-        }
-
-        /// <summary>
-        /// 「復元用を作成」を押し、結果のメッセージを読んでから閉じる。戻り値はメッセージの本文。
-        /// </summary>
-        public string CreateRestorePlan()
-        {
-            Invoke(GetById("btnCreateRestorePlan"));
-            string text = DialogText();
-            CloseDialog();
-            return text;
         }
 
         /// <summary>

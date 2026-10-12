@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Xunit;
 using FileTransfer2;
 
@@ -67,9 +68,37 @@ namespace UT
         }
 
         [Fact]
-        public void 復元用の計画の保存先_名前の後ろに印が付く()
+        public void 実行した行から作る場合_戻す元の退避がある行だけになる()
         {
-            Assert.Equal(@"C:\Profiles\v1.2.0_復元.tsv", RestorePlan.PathFor(@"C:\Profiles\v1.2.0.tsv", _config.Msg));
+            var executed = new List<TransferTask>
+            {
+                Task(TransferAction.Backup, @"D:\BizAppData", @"D:\ReleaseBackup\v1.2.0"),
+                Task(TransferAction.Deploy, @"C:\Release\v1.2.0\App", @"D:\App"), // 退避のコピーの途中で止まった（退避がない）
+            };
+            string dataSnapshot = Path.Combine(@"D:\ReleaseBackup\v1.2.0", FileTransferEngine.SnapshotName(@"D:\BizAppData"));
+
+            var restore = RestorePlan.CreateFromExecuted(executed, _config, path => path == dataSnapshot);
+
+            // 配置の行は入らない（入れると、復元のときにその行のエラーで止まり、業務データを戻せなくなる）
+            var only = Assert.Single(restore);
+            Assert.Equal(@"D:\BizAppData", only.Destination);
+        }
+
+        [Fact]
+        public void 実行した行から作る場合_戻すものがなければ作らない()
+        {
+            var executed = new List<TransferTask> { Task(TransferAction.Backup, @"D:\BizAppData", @"D:\ReleaseBackup\v1.2.0") };
+
+            Assert.Null(RestorePlan.CreateFromExecuted(executed, _config, path => false));
+            Assert.Null(RestorePlan.CreateFromExecuted(new List<TransferTask> { Task(TransferAction.Copy, @"D:\a.txt", @"D:\out") }, _config, path => true));
+        }
+
+        [Fact]
+        public void 実行した内容から作る復元用の保存先_プロファイル名と日時が付く()
+        {
+            string path = RestorePlan.PathForExecuted(@"C:\Profiles", "Release", _config.Msg, new DateTime(2026, 10, 13, 15, 30, 0));
+
+            Assert.Equal(@"C:\Profiles\Release_復元_20261013153000.tsv", path);
         }
     }
 }

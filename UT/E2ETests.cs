@@ -112,47 +112,66 @@ namespace UT
             _app.ExecuteAll();
             _app.ExecuteAll(); // 誤って2回実行した
 
-            Assert.Equal(_app.Msg.Status.Done, _app.GetStatus(0));
+            Assert.Equal(_app.Msg.Status.NoChange, _app.GetStatus(0)); // 2回目は何もしていないことが分かる
+            Assert.Single(RestorePlanFiles());                         // 復元用は、何か変えた1回目の分だけ
             Assert.Equal("new", File.ReadAllText(Path.Combine(target, "App.exe")));
             string backup = Path.Combine(_app.Config.BackupDir, "v1.0.0", FileTransferEngine.SnapshotName(target));
             Assert.Equal("old", File.ReadAllText(Path.Combine(backup, "App.exe")));
             Assert.Contains(Messages.Format(_app.Msg.Transfer.DeployAlreadyDone, 1, "v1.0.0", target), _app.Log);
         }
 
+        /// <summary>プロファイルのフォルダにある、実行したときに自動で作られた復元用の計画</summary>
+        private string[] RestorePlanFiles() => Directory.GetFiles(_app.Config.ProfilesDir, "*" + _app.Msg.Profile.RestorePlanSuffix + "_*.tsv");
+
         [Fact]
-        public void リリースと切り戻し_ボタンで復元用を作り_それを実行すると元に戻る()
+        public void リリースと切り戻し_実行すると復元用が自動で作られ_プロファイルを直した後でも元に戻せる()
         {
             string data = Path.GetDirectoryName(CreateFile(@"BizAppData\data.txt", "リリース前"));
             string backupRoot = WorkPath(@"ReleaseBackup\v1.0.0");
             string release = Path.GetDirectoryName(CreateFile(@"Release\v1.0.0\App\App.exe", "new"));
             string target = Path.GetDirectoryName(CreateFile(@"Prod\App\App.exe", "old"));
-            string restoreName = "Release" + _app.Msg.Profile.RestorePlanSuffix;
-            string restorePath = Path.Combine(_app.Config.ProfilesDir, restoreName + ".tsv");
 
-            // リリース用の計画：業務データを退避 → アプリを配置。保存しただけでは復元用は作られない
+            // リリース用の計画：業務データを退避 → アプリを配置
             _app.SetRow(0, TransferAction.Backup, data, backupRoot);
             _app.SetRow(1, TransferAction.Deploy, release, target);
             _app.SaveAs(Path.Combine(_app.Config.ProfilesDir, "Release.tsv"));
-            Assert.False(File.Exists(restorePath));
+            Assert.Empty(RestorePlanFiles()); // 保存しただけでは作られない
 
-            // 「復元用を作成」で作る
-            string result = _app.CreateRestorePlan();
-            Assert.Contains(Messages.Format(_app.Msg.Profile.RestorePlanSaved, restoreName + ".tsv"), result);
-            Assert.True(File.Exists(restorePath));
-
-            // リリースする。その後、業務データが変わった
+            // リリースすると、実行した内容から復元用が作られる。その後、業務データが変わった
             _app.ExecuteAll();
             Assert.Equal("new", File.ReadAllText(Path.Combine(target, "App.exe")));
+            string restoreFile = Assert.Single(RestorePlanFiles());
+            Assert.StartsWith("Release" + _app.Msg.Profile.RestorePlanSuffix + "_", Path.GetFileName(restoreFile));
+            Assert.Contains(Messages.Format(_app.Msg.Profile.ExecutedRestorePlanSaved, Path.GetFileName(restoreFile)), _app.Log);
             File.WriteAllText(Path.Combine(data, "data.txt"), "リリース後");
 
-            // 作った復元用の計画を読み込んで実行すると、リリース前に戻る
-            _app.LoadProfile("Release" + _app.Msg.Profile.RestorePlanSuffix);
+            // 実行した後で、プロファイルを誤って編集して保存してしまった
+            _app.SetText(1, _app.Msg.Column.Dest, WorkPath(@"Other\App"));
+            _app.Save();
+
+            // 自動で作られた復元用を実行すると、実行した内容（元の配置先）が、リリース前に戻る
+            _app.LoadProfile(Path.GetFileNameWithoutExtension(restoreFile));
             _app.ExecuteAll();
 
             Assert.Equal(_app.Msg.Status.Done, _app.GetStatus(0));
             Assert.Equal(_app.Msg.Status.Done, _app.GetStatus(1));
             Assert.Equal("old", File.ReadAllText(Path.Combine(target, "App.exe")));
             Assert.Equal("リリース前", File.ReadAllText(Path.Combine(data, "data.txt")));
+            Assert.Single(RestorePlanFiles()); // 復元を実行しても、復元用は作られない
+        }
+
+        [Fact]
+        public void 個別実行で配置しても_復元用が自動で作られる()
+        {
+            string release = Path.GetDirectoryName(CreateFile(@"Release\v1.0.0\App\App.exe", "new"));
+            string target = Path.GetDirectoryName(CreateFile(@"Prod\App\App.exe", "old"));
+            _app.SetRow(0, TransferAction.Deploy, release, target);
+
+            _app.ExecuteRow(0);
+
+            string restoreFile = Assert.Single(RestorePlanFiles());
+            // プロファイルを開いていないので「未保存」という名前になる
+            Assert.StartsWith(_app.Msg.Profile.UnsavedProfileName + _app.Msg.Profile.RestorePlanSuffix + "_", Path.GetFileName(restoreFile));
         }
 
         #endregion
